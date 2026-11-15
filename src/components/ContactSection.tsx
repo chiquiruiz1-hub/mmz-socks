@@ -290,10 +290,19 @@ export const ContactSection: React.FC<ContactSectionProps> = ({
                   </div>
                   <div>
                     <strong className="block text-white text-xs uppercase tracking-wider">Dirección de fábrica</strong>
-                    <p className="text-slate-300 mt-0.5">
+                    <a
+                      href="https://www.google.com/maps/search/?api=1&query=C%2F+Sagrada+Familia+2%2C+09260+Pradoluengo%2C+Burgos%2C+Espa%C3%B1a"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="block text-slate-300 mt-0.5 hover:text-white transition-colors"
+                      aria-label="Abrir la dirección de la fábrica en Google Maps"
+                    >
                       C/ Sagrada Familia 2<br />
                       09260 Pradoluengo (Burgos), España
-                    </p>
+                      <span className="block mt-1 text-turquoise-light font-semibold underline underline-offset-2">
+                        Cómo llegar (abrir en Google Maps) →
+                      </span>
+                    </a>
                   </div>
                 </div>
 

@@ -33,7 +33,15 @@ export const Footer: React.FC = () => {
 
             <div className="flex items-center gap-2 text-xs text-slate-400">
               <MapPin className="w-4 h-4 text-turquoise" />
-              <span>C/ Sagrada Familia 2, 09260 Pradoluengo (Burgos)</span>
+              <a
+                href="https://www.google.com/maps/search/?api=1&query=C%2F+Sagrada+Familia+2%2C+09260+Pradoluengo%2C+Burgos%2C+Espa%C3%B1a"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="hover:text-white underline underline-offset-2 transition-colors"
+                aria-label="Abrir la dirección de la fábrica en Google Maps"
+              >
+                C/ Sagrada Familia 2, 09260 Pradoluengo (Burgos)
+              </a>
             </div>
           </div>
 
