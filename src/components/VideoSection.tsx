@@ -50,7 +50,11 @@ export const VideoSection: React.FC = () => {
               preload="none"
               playsInline
               controls={started}
-              loop
+              onEnded={() => {
+                const v = videoRef.current;
+                if (v) v.currentTime = 0;
+                setStarted(false);
+              }}
               className="w-full h-full object-cover"
               aria-label="Anuncio de MMZ Socks: calcetines personalizados hechos a mano en Pradoluengo"
             />
