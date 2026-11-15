@@ -1,9 +1,13 @@
-import React, { useState } from 'react';
+import React, { useState, lazy, Suspense } from 'react';
 import { HeaderBanner } from './components/HeaderBanner';
 import { Navbar } from './components/Navbar';
 import { Hero } from './components/Hero';
 import { ArtisansSection } from './components/ArtisansSection';
-import { ConfiguratorSection } from './components/SockConfigurator/ConfiguratorSection';
+import { VideoSection } from './components/VideoSection';
+import { Reveal } from './components/Reveal';
+const ConfiguratorSection = lazy(() =>
+  import('./components/SockConfigurator/ConfiguratorSection').then((m) => ({ default: m.ConfiguratorSection }))
+);
 import { FactorySection } from './components/FactorySection';
 import { QualityDetailsSection } from './components/QualityDetailsSection';
 import { ClientsSection } from './components/ClientsSection';
@@ -43,28 +47,39 @@ export const App: React.FC = () => {
         <Hero />
 
         {/* 2. Artesanos del calcetín */}
-        <ArtisansSection />
+        <Reveal><ArtisansSection /></Reveal>
+
+        {/* Anuncio en vídeo */}
+        <VideoSection />
 
         {/* 3. EL DISEÑADOR (Configurador 3D interactivo con precio en vivo) */}
-        <ConfiguratorSection onSelectConfigForQuote={handleSelectConfigForQuote} />
+        <Suspense
+          fallback={
+            <section id="configurador" className="min-h-[70vh] flex items-center justify-center text-petrol">
+              <p className="font-semibold animate-pulse">Cargando el diseñador 3D…</p>
+            </section>
+          }
+        >
+          <ConfiguratorSection onSelectConfigForQuote={handleSelectConfigForQuote} />
+        </Suspense>
 
         {/* 4. Nuestra fábrica en Pradoluengo, Burgos */}
-        <FactorySection />
+        <Reveal><FactorySection /></Reveal>
 
         {/* 5. La calidad en cada detalle (8 puntos alrededor de foto inclinada) */}
-        <QualityDetailsSection />
+        <Reveal><QualityDetailsSection /></Reveal>
 
         {/* 6. Clientes (Empresas, Carreras, Clubes, Barefoot) */}
-        <ClientsSection />
+        <Reveal><ClientsSection /></Reveal>
 
         {/* 7. Diseño y fabricación (3 pasos) */}
-        <ProcessStepsSection />
+        <Reveal><ProcessStepsSection /></Reveal>
 
         {/* 8. Preguntas frecuentes en acordeón (6 preguntas) */}
-        <FAQSection />
+        <Reveal><FAQSection /></Reveal>
 
         {/* 9. Nuestras instalaciones (Galería de fotos) */}
-        <FacilitiesGallery />
+        <Reveal><FacilitiesGallery /></Reveal>
 
         {/* 10. Contacto (Formulario y datos de fábrica) */}
         <ContactSection
