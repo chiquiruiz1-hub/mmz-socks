@@ -10,7 +10,8 @@ import {
   Tag,
   Layers,
   Grid,
-  Type
+  Type,
+  Download
 } from 'lucide-react';
 import { SockViewer3D } from './SockViewer3D';
 import { SockConfig } from '../../types/sock';
@@ -26,6 +27,10 @@ import {
   LogoBgType,
   LogoPosition
 } from '../../utils/pricing';
+import {
+  generateAndDownloadQuotePdf,
+  downscaleImageDataUrl
+} from '../../utils/pdfQuote';
 
 // High resolution Sample logo SVG data URI (Integrated Jacquard design)
 const SAMPLE_CHURRERIA_LOGO = `data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 360" width="600" height="360"><text x="300" y="105" font-family="Arial, Helvetica, sans-serif" font-weight="900" font-size="58" fill="%23D32F2F" text-anchor="middle" letter-spacing="4">CHURRERÍA</text><text x="300" y="235" font-family="Arial, Helvetica, sans-serif" font-weight="900" font-size="115" fill="%23D32F2F" text-anchor="middle" letter-spacing="6">PEPE</text><text x="300" y="315" font-family="Arial, Helvetica, sans-serif" font-weight="800" font-size="32" fill="%23D32F2F" text-anchor="middle" letter-spacing="6">★ DESDE 1982 ★</text></svg>`;
@@ -115,7 +120,9 @@ const SwatchPicker: React.FC<SwatchPickerProps> = ({ label, value, onChange, idP
 
 export const ConfiguratorSection: React.FC<ConfiguratorSectionProps> = ({ onSelectConfigForQuote }) => {
   const sectionRef = useRef<HTMLElement>(null);
+  const captureSnapshotRef = useRef<(() => string | null) | null>(null);
   const [snapshotUrl, setSnapshotUrl] = useState<string>('');
+  const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
   const [isInViewport, setIsInViewport] = useState(false);
   const [activePresetId, setActivePresetId] = useState<DesignPresetId | null>('liso');
 
@@ -368,14 +375,22 @@ export const ConfiguratorSection: React.FC<ConfiguratorSectionProps> = ({ onSele
     }
 
     const reader = new FileReader();
-    reader.onload = (event) => {
+    reader.onload = async (event) => {
       if (typeof event.target?.result === 'string') {
+        const rawDataUrl = event.target.result;
+        // Reducir el logo si es muy grande antes de guardarlo en el estado y meterlo en el 3D / PDF
+        const reduced =
+          file.type === 'image/svg+xml'
+            ? null
+            : await downscaleImageDataUrl(rawDataUrl, 600, 600);
+        const finalUrl = reduced ? reduced.dataUrl : rawDataUrl;
+
         setActivePresetId(null);
         setConfig((prev) => ({
           ...prev,
           logo: {
             ...prev.logo,
-            url: event.target!.result as string
+            url: finalUrl
           }
         }));
       }
@@ -418,10 +433,30 @@ export const ConfiguratorSection: React.FC<ConfiguratorSectionProps> = ({ onSele
   };
 
   const handleQuoteClick = () => {
-    onSelectConfigForQuote(config, snapshotUrl);
+    const liveSnap = captureSnapshotRef.current?.() || snapshotUrl;
+    if (liveSnap) setSnapshotUrl(liveSnap);
+    onSelectConfigForQuote(config, liveSnap);
     const contactElem = document.getElementById('contacto');
     if (contactElem) {
       contactElem.scrollIntoView({ behavior: 'smooth' });
+    }
+  };
+
+  const handleDownloadPdf = async () => {
+    if (isGeneratingPdf) return;
+    setIsGeneratingPdf(true);
+    try {
+      const liveSnap = captureSnapshotRef.current?.() || snapshotUrl;
+      if (liveSnap) setSnapshotUrl(liveSnap);
+      await generateAndDownloadQuotePdf({
+        config,
+        pricing,
+        snapshotDataUrl: liveSnap
+      });
+    } catch (err) {
+      console.error('Error al generar el presupuesto en PDF:', err);
+    } finally {
+      setIsGeneratingPdf(false);
     }
   };
 
@@ -459,6 +494,7 @@ export const ConfiguratorSection: React.FC<ConfiguratorSectionProps> = ({ onSele
             <SockViewer3D
               config={config}
               onSnapshotReady={(data) => setSnapshotUrl(data)}
+              captureSnapshotRef={captureSnapshotRef}
             />
 
             {/* Quick summary strip below 3D */}
@@ -1220,16 +1256,31 @@ export const ConfiguratorSection: React.FC<ConfiguratorSectionProps> = ({ onSele
                 </div>
               </div>
 
-              {/* CTA Button "Pedir este presupuesto" */}
-              <button
-                type="button"
-                onClick={handleQuoteClick}
-                className="w-full flex items-center justify-center gap-2.5 py-4 px-6 rounded-2xl bg-turquoise hover:bg-turquoise-light text-white font-extrabold text-base shadow-lg hover:shadow-glow transition-all duration-200 active:scale-[0.99]"
-              >
-                <FileCheck className="w-5 h-5 text-yarn-mustard" />
-                <span>Pedir este presupuesto</span>
-                <ArrowDown className="w-4 h-4 ml-1" />
-              </button>
+              {/* CTA Buttons: "Descargar presupuesto en PDF" & "Pedir este presupuesto" */}
+              <div className="space-y-2.5">
+                <button
+                  type="button"
+                  data-testid="btn-download-pdf"
+                  onClick={handleDownloadPdf}
+                  disabled={isGeneratingPdf}
+                  className="w-full flex items-center justify-center gap-2.5 py-3.5 px-6 rounded-2xl bg-white hover:bg-ice text-petrol-dark font-extrabold text-sm sm:text-base shadow-md hover:shadow-lg transition-all duration-200 active:scale-[0.99] disabled:opacity-60 disabled:cursor-wait border border-white/80"
+                >
+                  <Download className="w-5 h-5 text-turquoise" />
+                  <span>
+                    {isGeneratingPdf ? 'Generando PDF...' : 'Descargar presupuesto en PDF'}
+                  </span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleQuoteClick}
+                  className="w-full flex items-center justify-center gap-2.5 py-4 px-6 rounded-2xl bg-turquoise hover:bg-turquoise-light text-white font-extrabold text-base shadow-lg hover:shadow-glow transition-all duration-200 active:scale-[0.99]"
+                >
+                  <FileCheck className="w-5 h-5 text-yarn-mustard" />
+                  <span>Pedir este presupuesto</span>
+                  <ArrowDown className="w-4 h-4 ml-1" />
+                </button>
+              </div>
 
               <p className="text-[11px] text-center text-slate-400">
                 * Precios orientativos para demostración técnica. El taller confirma viabilidad y coste final según complejidad del hilado.
@@ -1257,14 +1308,29 @@ export const ConfiguratorSection: React.FC<ConfiguratorSectionProps> = ({ onSele
               </div>
             </div>
 
-            <button
-              type="button"
-              onClick={handleQuoteClick}
-              className="flex items-center gap-2 px-5 py-2.5 bg-turquoise text-white text-sm font-bold rounded-xl shadow-md hover:bg-turquoise-light active:scale-95 transition-transform"
-            >
-              <span>Pedir presupuesto</span>
-              <ArrowDown className="w-4 h-4" />
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                data-testid="btn-download-pdf-mobile"
+                onClick={handleDownloadPdf}
+                disabled={isGeneratingPdf}
+                aria-label="Descargar presupuesto en PDF"
+                title="Descargar presupuesto en PDF"
+                className="flex items-center gap-1.5 px-3 py-2.5 bg-white text-petrol-dark text-xs font-extrabold rounded-xl shadow-md hover:bg-ice active:scale-95 transition-transform disabled:opacity-60"
+              >
+                <Download className="w-4 h-4 text-turquoise flex-shrink-0" />
+                <span>PDF</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={handleQuoteClick}
+                className="flex items-center gap-1.5 px-4 py-2.5 bg-turquoise text-white text-xs sm:text-sm font-bold rounded-xl shadow-md hover:bg-turquoise-light active:scale-95 transition-transform"
+              >
+                <span>Pedir presupuesto</span>
+                <ArrowDown className="w-4 h-4" />
+              </button>
+            </div>
           </div>
         </div>
       )}

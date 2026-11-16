@@ -8,6 +8,7 @@ import { ExtendedSockConfig } from '../../utils/pricing';
 interface SockViewer3DProps {
   config: ExtendedSockConfig;
   onSnapshotReady?: (dataUrl: string) => void;
+  captureSnapshotRef?: React.MutableRefObject<(() => string | null) | null>;
 }
 
 // Target center point of the sock & podium assembly
@@ -301,7 +302,11 @@ function createContactShadowTexture(): THREE.CanvasTexture | null {
   return texture;
 }
 
-export const SockViewer3D: React.FC<SockViewer3DProps> = ({ config, onSnapshotReady }) => {
+export const SockViewer3D: React.FC<SockViewer3DProps> = ({
+  config,
+  onSnapshotReady,
+  captureSnapshotRef,
+}) => {
   const mountRef = useRef<HTMLDivElement>(null);
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
   const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
@@ -644,6 +649,18 @@ export const SockViewer3D: React.FC<SockViewer3DProps> = ({ config, onSnapshotRe
     }
 
     footTex.needsUpdate = true;
+
+    if (rendererRef.current && sceneRef.current && cameraRef.current && onSnapshotReady) {
+      requestAnimationFrame(() => {
+        if (!rendererRef.current || !sceneRef.current || !cameraRef.current) return;
+        rendererRef.current.render(sceneRef.current, cameraRef.current);
+        try {
+          onSnapshotReady(rendererRef.current.domElement.toDataURL('image/png'));
+        } catch {
+          // ignore snapshot error
+        }
+      });
+    }
   }, [
     config.cuffColor,
     config.legColor,
@@ -653,7 +670,45 @@ export const SockViewer3D: React.FC<SockViewer3DProps> = ({ config, onSnapshotRe
     config.logoBg,
     config.logoPosition,
     config.knittedText,
+    onSnapshotReady,
   ]);
+
+  // Expose live snapshot capture helper for PDF and Quote actions
+  useEffect(() => {
+    if (!captureSnapshotRef) return;
+    captureSnapshotRef.current = () => {
+      const renderer = rendererRef.current;
+      const scene = sceneRef.current;
+      const camera = cameraRef.current;
+      const controls = controlsRef.current;
+      if (!renderer || !scene || !camera) return null;
+
+      if (introAnimRef.current?.active && controls) {
+        introAnimRef.current.active = false;
+        const rHoriz = CAMERA_DISTANCE * Math.cos(ELEVATION_ANGLE);
+        const rVert = CAMERA_DISTANCE * Math.sin(ELEVATION_ANGLE);
+        camera.position.set(
+          TARGET.x + rHoriz * Math.sin(PRESETS.frente),
+          TARGET.y + rVert,
+          TARGET.z + rHoriz * Math.cos(PRESETS.frente)
+        );
+        controls.target.copy(TARGET);
+        controls.update();
+      }
+
+      renderer.render(scene, camera);
+      try {
+        return renderer.domElement.toDataURL('image/png');
+      } catch {
+        return null;
+      }
+    };
+    return () => {
+      if (captureSnapshotRef) {
+        captureSnapshotRef.current = null;
+      }
+    };
+  }, [captureSnapshotRef]);
 
   // Preload logo image
   useEffect(() => {
@@ -982,7 +1037,7 @@ export const SockViewer3D: React.FC<SockViewer3DProps> = ({ config, onSnapshotRe
           setTimeout(() => {
             if (isDisposed) return;
             renderer.render(scene, camera);
-            const url = renderer.domElement.toDataURL('image/webp', 0.9);
+            const url = renderer.domElement.toDataURL('image/png');
             onSnapshotReady(url);
           }, 500);
         }
