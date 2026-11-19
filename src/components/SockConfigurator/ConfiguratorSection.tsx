@@ -160,7 +160,7 @@ export const ConfiguratorSection: React.FC<ConfiguratorSectionProps> = ({ onSele
       color: '#1E232A'
     },
     material: 'cotton',
-    quantity: 2000
+    quantity: 50
   });
 
   // Monitor visibility of section to trigger sticky mobile bar
