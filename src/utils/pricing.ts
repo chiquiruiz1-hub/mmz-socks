@@ -68,13 +68,14 @@ export const MATERIALS: MaterialOption[] = [
   }
 ];
 
+// Precios base SIN IVA, calculados a partir de la tarifa publicada en la web
+// antigua de la fábrica (IVA incluido): 10-15 pares 6,00 €; 16-24 pares 5,25 €;
+// 25-50 pares 4,25 €; más de 50 "consultar". Por encima de 50 se mantiene el
+// último tramo como referencia (a confirmar con la fábrica).
 export function getBasePricePerPair(qty: number): number {
-  if (qty >= 5000) return 2.90;
-  if (qty >= 2000) return 3.30;
-  if (qty >= 1000) return 3.90;
-  if (qty >= 500) return 4.70;
-  if (qty >= 250) return 5.60;
-  return 6.80; // from 50 to 249
+  if (qty >= 25) return 3.51; // 4,25 € con IVA
+  if (qty >= 16) return 4.34; // 5,25 € con IVA
+  return 4.96; // 6,00 € con IVA (de 10 a 15 pares)
 }
 
 export function calculateColorsCount(config: ExtendedSockConfig): number {
@@ -113,7 +114,7 @@ export function calculateColorsCount(config: ExtendedSockConfig): number {
 }
 
 export function calculatePricing(config: ExtendedSockConfig, overrideColorsCount?: number): PriceBreakdown {
-  const quantity = Math.max(50, Math.round(config.quantity || 50));
+  const quantity = Math.max(10, Math.round(config.quantity || 10));
   const basePricePerPair = getBasePricePerPair(quantity);
 
   const mat = MATERIALS.find((m) => m.id === config.material) || MATERIALS[0];
@@ -136,7 +137,7 @@ export function calculatePricing(config: ExtendedSockConfig, overrideColorsCount
 
   const pricePerPair = Number((basePricePerPair + materialExtra + logoExtra + extraColorsExtra).toFixed(2));
   const subtotalPairs = Number((pricePerPair * quantity).toFixed(2));
-  const setupFee = 120.0;
+  const setupFee = 0; // la tarifa real de la fábrica no incluye cuota de puesta a punto
   const subtotal = Number((subtotalPairs + setupFee).toFixed(2));
   const vat = Number((subtotal * 0.21).toFixed(2));
   const total = Number((subtotal + vat).toFixed(2));

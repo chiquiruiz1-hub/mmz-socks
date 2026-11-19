@@ -67,7 +67,7 @@ export const Hero: React.FC = () => {
               <span className="text-slate-300 hidden sm:inline">·</span>
               <div className="flex items-center gap-2">
                 <CheckCircle2 className="w-4 h-4 text-yarn-coral" />
-                <span className="font-semibold text-petrol-dark">Pedidos desde 50 pares</span>
+                <span className="font-semibold text-petrol-dark">Pedidos desde 10 pares</span>
               </div>
             </div>
 

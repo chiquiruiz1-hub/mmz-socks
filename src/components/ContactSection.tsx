@@ -29,6 +29,9 @@ export const ContactSection: React.FC<ContactSectionProps> = ({
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
   const [message, setMessage] = useState('');
+  const [pairs, setPairs] = useState('');
+  const [deadline, setDeadline] = useState('');
+  const [logoFileName, setLogoFileName] = useState('');
   const [privacyAgreed, setPrivacyAgreed] = useState(false);
   const [errors, setErrors] = useState<{ [key: string]: string }>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -89,6 +92,9 @@ export const ContactSection: React.FC<ContactSectionProps> = ({
         email: email.trim(),
         phone: sanitizeText(phone),
         message: sanitizeText(message),
+        pairs: sanitizeText(pairs),
+        deadline: sanitizeText(deadline),
+        logoFileName: sanitizeText(logoFileName),
         config: selectedConfig,
         snapshotUrl: snapshotUrl
       });
@@ -207,6 +213,53 @@ export const ContactSection: React.FC<ContactSectionProps> = ({
                     className="w-full px-4 py-3 text-sm rounded-xl border border-slate-300 focus:ring-2 focus:ring-turquoise focus:border-transparent transition-all"
                   />
                 </div>
+              </div>
+
+              {/* Cantidad, fecha y logo */}
+              <div className="grid sm:grid-cols-2 gap-5">
+                <div className="space-y-1.5">
+                  <label htmlFor="pairs" className="block text-xs font-bold text-slate-700 uppercase tracking-wider">
+                    Cantidad de pares (mín. 10)
+                  </label>
+                  <input
+                    id="pairs"
+                    type="number"
+                    min={10}
+                    inputMode="numeric"
+                    value={pairs}
+                    onChange={(e) => setPairs(e.target.value)}
+                    placeholder="Ej. 50"
+                    className="w-full px-4 py-3 text-sm rounded-xl border border-slate-300 focus:ring-2 focus:ring-turquoise focus:border-transparent transition-all"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <label htmlFor="deadline" className="block text-xs font-bold text-slate-700 uppercase tracking-wider">
+                    Fecha en que los necesitas
+                  </label>
+                  <input
+                    id="deadline"
+                    type="date"
+                    value={deadline}
+                    onChange={(e) => setDeadline(e.target.value)}
+                    className="w-full px-4 py-3 text-sm rounded-xl border border-slate-300 focus:ring-2 focus:ring-turquoise focus:border-transparent transition-all"
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <label htmlFor="logofile" className="block text-xs font-bold text-slate-700 uppercase tracking-wider">
+                  Tu logo (JPG, PNG, PDF o .ai)
+                </label>
+                <input
+                  id="logofile"
+                  type="file"
+                  accept=".jpg,.jpeg,.png,.pdf,.ai,.svg,.psd,.bmp"
+                  onChange={(e) => setLogoFileName(e.target.files?.[0]?.name || '')}
+                  className="w-full text-sm text-slate-600 file:mr-3 file:py-2 file:px-4 file:rounded-xl file:border-0 file:bg-petrol file:text-white file:font-semibold file:cursor-pointer"
+                />
+                <p className="text-[11px] text-slate-500">
+                  Nosotros preparamos el diseño para la máquina: no hace falta que lo dibujes ni lo pases a píxeles.
+                </p>
               </div>
 
               {/* Message */}

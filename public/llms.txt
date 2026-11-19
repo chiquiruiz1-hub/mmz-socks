@@ -7,7 +7,7 @@
 - **Ubicación**: Calle Sagrada Familia 2, 09260 Pradoluengo (Burgos, España)
 - **Contacto**: info@mmzsocks.com | Teléfono y WhatsApp: +34 627 588 488
 - **Horario**: A confirmar por la fábrica
-- **Pedido mínimo**: 50 pares por diseño.
+- **Pedido mínimo**: 10 pares por diseño.
 - **Técnica de fabricación**: Tejido jacquard directo con puntera sin costuras, talón y puntera reforzados.
 - **Tipologías**: Calcetines deportivos, casual para marcas, corporativos para empresas, barefoot de horma ancha anatómica.
 
@@ -16,4 +16,4 @@ La plataforma web cuenta con un visualizador 3D interactivo donde los usuarios p
 - Personalizar el color del puño, caña y pie.
 - Mantener refuerzo técnico en talón y puntera (color pizarra fijo).
 - Probar logotipos propios en formato PNG, JPG, SVG o WebP.
-- Calcular presupuestos orientativos según volumen (desde 50 hasta 5000+ pares), material seleccionado y caras impresas.
+- Calcular presupuestos orientativos según volumen (desde 10 pares), material seleccionado y caras impresas.

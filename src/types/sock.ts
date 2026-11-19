@@ -19,6 +19,7 @@ export interface SockConfig {
     yPos: number; // 0.1 to 0.8
     rotation: number; // -180 to 180 degrees
     repeatBack: boolean;
+    allOver?: boolean; // diseño repetido por todo el calcetín
   };
   material: MaterialType;
   quantity: number;

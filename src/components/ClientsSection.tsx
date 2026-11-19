@@ -58,7 +58,7 @@ export const ClientsSection: React.FC = () => {
             Para quién tejemos calcetines en MMZ Socks
           </h2>
           <p className="mt-4 text-base sm:text-lg text-slate-600 leading-relaxed">
-            Desde tiradas de 50 pares para una peña de amigos hasta grandes producciones anuales para marcas de moda o circuitos deportivos nacionales.
+            Desde tiradas de 10 pares para una peña de amigos hasta grandes producciones anuales para marcas de moda o circuitos deportivos nacionales.
           </p>
         </div>
 

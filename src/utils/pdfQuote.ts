@@ -370,7 +370,7 @@ export async function generateAndDownloadQuotePdf({
 
   doc.setFontSize(7.8);
   doc.setTextColor(203, 213, 225);
-  doc.text('Tejeduría jacquard sin costuras · Materiales certificados desde 50 pares', marginX + 16, 23.2);
+  doc.text('Tejeduría jacquard sin costuras · Materiales certificados desde 10 pares', marginX + 16, 23.2);
 
   // Bloque derecho en cabecera: Título "Presupuesto", nº correlativo, fecha y validez
   doc.setFont('helvetica', 'bold');
@@ -630,15 +630,19 @@ export async function generateAndDownloadQuotePdf({
       amount: formatSpanishEuro(pricing.subtotalPairs),
       rowStyle: 'accent'
     },
-    {
-      concept: 'Puesta a punto de telar',
-      detail: 'Programación técnica de matriz de agujas Jacquard y preparación de telar (fija 1 sola vez)',
-      unitInfo: '1 lote único',
-      amount: formatSpanishEuro(pricing.setupFee)
-    },
+    ...(pricing.setupFee > 0
+      ? [
+          {
+            concept: 'Puesta a punto de telar',
+            detail: 'Programación técnica de matriz de agujas Jacquard y preparación de telar (fija 1 sola vez)',
+            unitInfo: '1 lote único',
+            amount: formatSpanishEuro(pricing.setupFee)
+          }
+        ]
+      : []),
     {
       concept: 'Subtotal',
-      detail: `Base imponible (total fabricación ${pricing.quantity.toLocaleString('es-ES')} pares + puesta a punto de telar)`,
+      detail: `Base imponible (total fabricación ${pricing.quantity.toLocaleString('es-ES')} pares)`,
       unitInfo: 'Base imponible (sin IVA)',
       amount: formatSpanishEuro(pricing.subtotal),
       rowStyle: 'subtotal'

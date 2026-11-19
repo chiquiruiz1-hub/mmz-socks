@@ -1,8 +1,9 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import * as THREE from 'three';
+import { createPortal } from 'react-dom';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
-import { Lock, RotateCw, Eye, Sparkles, AlertCircle, RefreshCw } from 'lucide-react';
+import { Lock, RotateCw, Eye, Sparkles, AlertCircle, RefreshCw, ZoomIn, X } from 'lucide-react';
 import { ExtendedSockConfig } from '../../utils/pricing';
 
 interface SockViewer3DProps {
@@ -198,6 +199,132 @@ function drawPixelatedText(
   }
 }
 
+
+// ---------------------------------------------------------------------------
+// Logo tejido: 1 aguja = 1 píxel, con un máximo de hilos de color (como en máquina)
+// ---------------------------------------------------------------------------
+const MACHINE_NEEDLES = 200; // agujas alrededor del calcetín (a confirmar con la fábrica)
+const PX_PER_NEEDLE = 1024 / MACHINE_NEEDLES;
+const MAX_LOGO_INKS = 5; // máx. 6 tintas por diseño, una la usa el fondo
+
+const knitLogoCache = new Map<string, HTMLCanvasElement>();
+
+function pixelateLogoToInks(
+  img: HTMLImageElement,
+  cols: number,
+  rows: number,
+  maxInks: number
+): HTMLCanvasElement | null {
+  const key = `${img.src.length}:${img.src.slice(-48)}:${cols}x${rows}:${maxInks}`;
+  const cached = knitLogoCache.get(key);
+  if (cached) return cached;
+
+  const c = document.createElement('canvas');
+  c.width = cols;
+  c.height = rows;
+  const x = c.getContext('2d', { willReadFrequently: true });
+  if (!x) return null;
+  x.imageSmoothingEnabled = true;
+  x.imageSmoothingQuality = 'high';
+  x.drawImage(img, 0, 0, cols, rows);
+  const imgData = x.getImageData(0, 0, cols, rows);
+  const px = imgData.data;
+
+  const buckets = new Map<number, { n: number; r: number; g: number; b: number }>();
+  for (let i = 0; i < px.length; i += 4) {
+    if (px[i + 3] < 128) {
+      px[i + 3] = 0;
+      continue;
+    }
+    px[i + 3] = 255;
+    const k = ((px[i] >> 4) << 8) | ((px[i + 1] >> 4) << 4) | (px[i + 2] >> 4);
+    const b = buckets.get(k);
+    if (b) {
+      b.n++;
+      b.r += px[i];
+      b.g += px[i + 1];
+      b.b += px[i + 2];
+    } else {
+      buckets.set(k, { n: 1, r: px[i], g: px[i + 1], b: px[i + 2] });
+    }
+  }
+
+  const palette: [number, number, number][] = [];
+  const sorted = [...buckets.values()].sort((a, b) => b.n - a.n);
+  for (const b of sorted) {
+    const cr = b.r / b.n;
+    const cg = b.g / b.n;
+    const cb = b.b / b.n;
+    const far = palette.every(
+      (p) => (p[0] - cr) ** 2 + (p[1] - cg) ** 2 + (p[2] - cb) ** 2 > 55 * 55
+    );
+    if (far) palette.push([cr, cg, cb]);
+    if (palette.length >= maxInks) break;
+  }
+  if (palette.length === 0) {
+    knitLogoCache.set(key, c);
+    return c;
+  }
+
+  for (let i = 0; i < px.length; i += 4) {
+    if (px[i + 3] === 0) continue;
+    let best = 0;
+    let bd = Infinity;
+    for (let j = 0; j < palette.length; j++) {
+      const d =
+        (palette[j][0] - px[i]) ** 2 +
+        (palette[j][1] - px[i + 1]) ** 2 +
+        (palette[j][2] - px[i + 2]) ** 2;
+      if (d < bd) {
+        bd = d;
+        best = j;
+      }
+    }
+    px[i] = Math.round(palette[best][0]);
+    px[i + 1] = Math.round(palette[best][1]);
+    px[i + 2] = Math.round(palette[best][2]);
+  }
+  x.putImageData(imgData, 0, 0);
+
+  if (knitLogoCache.size > 24) knitLogoCache.clear();
+  knitLogoCache.set(key, c);
+  return c;
+}
+
+/** Dibuja el logo ya pixelado: cada punto es una malla con relieve de tejido. */
+function drawKnittedLogo(
+  ctx: CanvasRenderingContext2D,
+  small: HTMLCanvasElement,
+  cx: number,
+  cy: number,
+  dw: number,
+  dh: number
+) {
+  const cols = small.width;
+  const rows = small.height;
+  const sctx = small.getContext('2d', { willReadFrequently: true });
+  if (!sctx) return;
+  const data = sctx.getImageData(0, 0, cols, rows).data;
+  const cw = dw / cols;
+  const ch = dh / rows;
+  const x0 = cx - dw / 2;
+  const y0 = cy - dh / 2;
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      const i = (r * cols + c) * 4;
+      if (data[i + 3] === 0) continue;
+      const x = x0 + c * cw;
+      const y = y0 + r * ch;
+      ctx.fillStyle = `rgb(${data[i]},${data[i + 1]},${data[i + 2]})`;
+      ctx.fillRect(x, y, cw + 0.6, ch + 0.6);
+      ctx.fillStyle = 'rgba(0,0,0,0.20)';
+      ctx.fillRect(x, y + ch * 0.74, cw + 0.6, ch * 0.26 + 0.6);
+      ctx.fillStyle = 'rgba(255,255,255,0.12)';
+      ctx.fillRect(x, y, cw * 0.38, ch * 0.42);
+    }
+  }
+}
+
 /**
  * Draw horizontal Jacquard stripes with subtle stitch teeth along edges
  */
@@ -302,6 +429,192 @@ function createContactShadowTexture(): THREE.CanvasTexture | null {
   return texture;
 }
 
+
+// ---------------------------------------------------------------------------
+// Lupa: vista plana del tejido con una lente que amplía hasta ver cada aguja
+// ---------------------------------------------------------------------------
+interface KnitLupaProps {
+  legCanvasRef: React.MutableRefObject<HTMLCanvasElement | null>;
+  config: ExtendedSockConfig;
+  onClose: () => void;
+}
+
+const LUPA_VIEW = 480; // píxeles de textura que se muestran
+const LENS_SIZE = 168;
+
+const KnitLupa: React.FC<KnitLupaProps> = ({ legCanvasRef, config, onClose }) => {
+  const viewRef = useRef<HTMLCanvasElement>(null);
+  const lensRef = useRef<HTMLCanvasElement>(null);
+  const [zoom, setZoom] = useState(4);
+  const [pos, setPos] = useState<{ x: number; y: number } | null>(null);
+  const [showGrid, setShowGrid] = useState(true);
+  const [side, setSide] = useState<'front' | 'back'>('front');
+
+  const draw = useCallback(() => {
+    const leg = legCanvasRef.current;
+    const view = viewRef.current;
+    if (!leg || !view) return;
+    const v = view.getContext('2d');
+    if (!v) return;
+    const rotOffset = (config.logo.rotation || 0) / 360;
+    const baseU = side === 'front' ? 0 : 0.5;
+    const u = (((baseU + rotOffset) % 1) + 1) % 1;
+    const cx = u * 1024;
+    const vC = 0.18 + (config.logo.yPos ?? 0.45) * 0.46;
+    const cy = Math.max(LUPA_VIEW / 2, Math.min(1024 - LUPA_VIEW / 2, vC * 1024));
+    v.imageSmoothingEnabled = false;
+    v.clearRect(0, 0, LUPA_VIEW, LUPA_VIEW);
+    for (const off of [-1024, 0, 1024]) {
+      v.drawImage(leg, off - (cx - LUPA_VIEW / 2), -(cy - LUPA_VIEW / 2));
+    }
+    if (showGrid) {
+      v.strokeStyle = 'rgba(255,255,255,0.10)';
+      v.lineWidth = 1;
+      v.beginPath();
+      for (let g = 0; g <= LUPA_VIEW; g += PX_PER_NEEDLE) {
+        v.moveTo(Math.round(g) + 0.5, 0);
+        v.lineTo(Math.round(g) + 0.5, LUPA_VIEW);
+        v.moveTo(0, Math.round(g) + 0.5);
+        v.lineTo(LUPA_VIEW, Math.round(g) + 0.5);
+      }
+      v.stroke();
+    }
+  }, [legCanvasRef, config.logo.rotation, config.logo.yPos, showGrid, side]);
+
+  useEffect(() => {
+    draw();
+    const id = window.setInterval(draw, 350);
+    return () => window.clearInterval(id);
+  }, [draw]);
+
+  useEffect(() => {
+    const view = viewRef.current;
+    const lens = lensRef.current;
+    if (!view || !lens || !pos) return;
+    const l = lens.getContext('2d');
+    if (!l) return;
+    const src = LENS_SIZE / zoom;
+    const sx = Math.max(0, Math.min(LUPA_VIEW - src, pos.x * LUPA_VIEW - src / 2));
+    const sy = Math.max(0, Math.min(LUPA_VIEW - src, pos.y * LUPA_VIEW - src / 2));
+    l.imageSmoothingEnabled = false;
+    l.clearRect(0, 0, LENS_SIZE, LENS_SIZE);
+    l.drawImage(view, sx, sy, src, src, 0, 0, LENS_SIZE, LENS_SIZE);
+  }, [pos, zoom]);
+
+  const onMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    const r = e.currentTarget.getBoundingClientRect();
+    setPos({
+      x: Math.max(0, Math.min(1, (e.clientX - r.left) / r.width)),
+      y: Math.max(0, Math.min(1, (e.clientY - r.top) / r.height)),
+    });
+  };
+
+  const hasLogo = Boolean(config.logo.url);
+  const backAvailable = (config.logoPosition || (config.logo.repeatBack ? 'both' : 'front')) !== 'front';
+
+  return createPortal(
+    <div className="fixed inset-0 z-[200] bg-white flex flex-col p-3 sm:p-6 gap-3 overflow-auto">
+      <div className="flex items-center justify-between gap-2">
+        <div>
+          <p className="text-sm font-bold text-slate-800">Lupa del tejido</p>
+          <p className="text-[11px] text-slate-500">
+            Cada cuadradito es una aguja. Pasa el dedo o el ratón por encima para ampliar.
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={onClose}
+          className="flex items-center gap-1 px-3 py-1.5 text-xs font-bold rounded-xl bg-petrol text-white"
+          aria-label="Cerrar la lupa"
+        >
+          <X className="w-3.5 h-3.5" />
+          Cerrar
+        </button>
+      </div>
+
+      <div className="flex flex-wrap items-center gap-2 text-xs">
+        <span className="font-semibold text-slate-600">Ampliación</span>
+        {[2, 4, 6, 8].map((z) => (
+          <button
+            key={z}
+            type="button"
+            onClick={() => setZoom(z)}
+            className={`px-2.5 py-1 rounded-lg font-bold border ${
+              zoom === z ? 'bg-petrol text-white border-petrol' : 'bg-white text-slate-700 border-slate-200'
+            }`}
+          >
+            x{z}
+          </button>
+        ))}
+        <button
+          type="button"
+          onClick={() => setShowGrid((g) => !g)}
+          className={`px-2.5 py-1 rounded-lg font-bold border ${
+            showGrid ? 'bg-turquoise text-white border-turquoise' : 'bg-white text-slate-700 border-slate-200'
+          }`}
+        >
+          Agujas
+        </button>
+        {backAvailable && (
+          <button
+            type="button"
+            onClick={() => setSide((sd) => (sd === 'front' ? 'back' : 'front'))}
+            className="px-2.5 py-1 rounded-lg font-bold border bg-white text-slate-700 border-slate-200"
+          >
+            {side === 'front' ? 'Ver detrás' : 'Ver delante'}
+          </button>
+        )}
+      </div>
+
+      <div
+        className="relative mx-auto w-full max-w-[480px] aspect-square rounded-2xl overflow-hidden border border-slate-200 touch-none select-none bg-slate-100"
+        onPointerMove={onMove}
+        onPointerDown={onMove}
+        onPointerLeave={() => setPos(null)}
+      >
+        <canvas
+          ref={viewRef}
+          width={LUPA_VIEW}
+          height={LUPA_VIEW}
+          className="w-full h-full"
+          style={{ imageRendering: 'pixelated' }}
+        />
+        {pos && (
+          <span
+            className="absolute w-2 h-2 rounded-full bg-turquoise ring-2 ring-white pointer-events-none"
+            style={{ left: `calc(${pos.x * 100}% - 4px)`, top: `calc(${pos.y * 100}% - 4px)` }}
+          />
+        )}
+        {pos && (
+          <canvas
+            ref={lensRef}
+            width={LENS_SIZE}
+            height={LENS_SIZE}
+            className="absolute rounded-full border-4 border-white shadow-xl pointer-events-none"
+            style={{
+              width: LENS_SIZE,
+              height: LENS_SIZE,
+              imageRendering: 'pixelated',
+              left: `calc(${pos.x * 100}% - ${LENS_SIZE / 2}px)`,
+              top: `calc(${pos.y * 100}% - ${LENS_SIZE + 24}px)`,
+            }}
+          />
+        )}
+        {!hasLogo && (
+          <div className="absolute inset-x-0 bottom-2 text-center text-[11px] text-slate-600">
+            Sube un logo o pulsa «Logo ejemplo» para verlo tejido.
+          </div>
+        )}
+      </div>
+      <p className="mx-auto max-w-[480px] text-[11px] leading-snug text-slate-500">
+        Así lo tejerá la máquina: cada cuadrado es una aguja y el logo se reduce a un máximo de {MAX_LOGO_INKS} hilos de color.
+        Los detalles más finos que una aguja se pierden: el texto pequeño necesita al menos 7 agujas de alto para leerse bien.
+      </p>
+    </div>,
+    document.body
+  );
+};
+
 export const SockViewer3D: React.FC<SockViewer3DProps> = ({
   config,
   onSnapshotReady,
@@ -336,6 +649,7 @@ export const SockViewer3D: React.FC<SockViewer3DProps> = ({
   const [loadError, setLoadError] = useState<string | null>(null);
   const [autoRotate, setAutoRotate] = useState(false);
   const [activePreset, setActivePreset] = useState<PresetKey | null>('frente');
+  const [lupaOpen, setLupaOpen] = useState(false);
 
   // Animation refs
   const introAnimRef = useRef<{
@@ -395,6 +709,22 @@ export const SockViewer3D: React.FC<SockViewer3DProps> = ({
       return zoneBg.trim().toLowerCase() === '#ffffff' ? '#1F4D63' : '#FFFFFF';
     };
 
+    // Diseño repetido por todo el calcetín (estampado completo)
+    const allOverImg = config.logo.allOver ? logoImageRef.current : null;
+    const allOverReady = Boolean(allOverImg && allOverImg.complete && allOverImg.naturalWidth > 0);
+    const tileAllOver = (ctx: CanvasRenderingContext2D) => {
+      if (!allOverReady || !allOverImg) return;
+      const repeatsX = 4; // 4 repeticiones alrededor: encaja justo y no se corta al dar la vuelta
+      const tileW = 1024 / repeatsX;
+      const tileH = tileW * (allOverImg.naturalHeight / allOverImg.naturalWidth);
+      ctx.imageSmoothingEnabled = false;
+      for (let y = 0; y < 1024; y += tileH) {
+        for (let x = 0; x < 1024; x += tileW) {
+          ctx.drawImage(allOverImg, x, y, tileW + 1, tileH + 1);
+        }
+      }
+    };
+
     // =========================================================================
     // 1. CUFF CANVAS
     // =========================================================================
@@ -436,6 +766,8 @@ export const SockViewer3D: React.FC<SockViewer3DProps> = ({
       }
     }
 
+    tileAllOver(cuffCtx);
+
     // Subtle vertical ribbing lines on cuff
     cuffCtx.fillStyle = 'rgba(0, 0, 0, 0.045)';
     for (let x = 0; x < 1024; x += 16) {
@@ -464,8 +796,8 @@ export const SockViewer3D: React.FC<SockViewer3DProps> = ({
     const hasLogo = Boolean(config.logo.url);
     const hasText = Boolean(knittedText.text && knittedText.text.trim().length > 0);
 
-    const logoUHalf = 0.16 * scale + (logoBg.type !== 'none' ? 0.035 : 0);
-    const logoVHalf = 0.15 * scale + (logoBg.type !== 'none' ? 0.035 : 0);
+    const logoUHalf = 0.19 * scale + (logoBg.type !== 'none' ? 0.035 : 0);
+    const logoVHalf = 0.18 * scale + (logoBg.type !== 'none' ? 0.035 : 0);
 
     const vTextCenter = hasLogo
       ? Math.min(0.84, vLogoCenter + logoVHalf + 0.08)
@@ -556,11 +888,13 @@ export const SockViewer3D: React.FC<SockViewer3DProps> = ({
       }
     }
 
+    tileAllOver(legCtx);
+
     // Draw Logo Background Patch & Logo Image on Leg
     const img = logoImageRef.current;
-    if (hasLogo && img && img.complete && img.naturalWidth > 0) {
-      const maxBoxW = 1024 * 0.28 * scale;
-      const maxBoxH = 1024 * 0.28 * scale;
+    if (hasLogo && !config.logo.allOver && img && img.complete && img.naturalWidth > 0) {
+      const maxBoxW = 1024 * 0.34 * scale;
+      const maxBoxH = 1024 * 0.34 * scale;
       const cy = vLogoCenter * 1024;
 
       const imgAspect = img.naturalWidth / (img.naturalHeight || 1);
@@ -586,7 +920,14 @@ export const SockViewer3D: React.FC<SockViewer3DProps> = ({
           }
 
           legCtx.imageSmoothingEnabled = false;
-          legCtx.drawImage(img, cx - dw / 2, cy - dh / 2, dw, dh);
+          const knitCols = Math.max(8, Math.round(dw / PX_PER_NEEDLE));
+          const knitRows = Math.max(8, Math.round(dh / PX_PER_NEEDLE));
+          const knitted = pixelateLogoToInks(img, knitCols, knitRows, MAX_LOGO_INKS);
+          if (knitted) {
+            drawKnittedLogo(legCtx, knitted, cx, cy, dw, dh);
+          } else {
+            legCtx.drawImage(img, cx - dw / 2, cy - dh / 2, dw, dh);
+          }
         });
       }
     }
@@ -647,6 +988,8 @@ export const SockViewer3D: React.FC<SockViewer3DProps> = ({
         }
       }
     }
+
+    tileAllOver(footCtx);
 
     footTex.needsUpdate = true;
 
@@ -1239,6 +1582,16 @@ export const SockViewer3D: React.FC<SockViewer3DProps> = ({
           </button>
         </div>
 
+        <div className="flex items-center gap-2 pointer-events-auto">
+        <button
+          type="button"
+          onClick={() => setLupaOpen(true)}
+          className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1 sm:py-1.5 text-xs font-bold rounded-2xl backdrop-blur-md transition-all shadow-sm border bg-white/90 text-slate-700 border-slate-200 hover:bg-white"
+          aria-label="Abrir la lupa para ver el tejido de cerca"
+        >
+          <ZoomIn className="w-3.5 h-3.5 text-turquoise" />
+          <span>Lupa</span>
+        </button>
         {/* Auto Rotate Toggle */}
         <button
           type="button"
@@ -1258,6 +1611,7 @@ export const SockViewer3D: React.FC<SockViewer3DProps> = ({
           <RotateCw className={`w-3.5 h-3.5 ${autoRotate ? 'animate-spin' : ''}`} />
           <span className="hidden xs:inline">Girar solo</span>
         </button>
+        </div>
       </div>
 
       {/* Center 3D WebGL Canvas */}
@@ -1293,6 +1647,10 @@ export const SockViewer3D: React.FC<SockViewer3DProps> = ({
           </div>
         )}
       </div>
+
+      {lupaOpen && (
+        <KnitLupa legCanvasRef={legCanvasRef} config={config} onClose={() => setLupaOpen(false)} />
+      )}
 
       {/* Bottom Overlay: Locked Zone Notice & Drag hint */}
       <div className="absolute bottom-3 sm:bottom-4 left-3 sm:left-4 right-3 sm:right-4 z-20 flex flex-col sm:flex-row items-center justify-between gap-2 pointer-events-none">

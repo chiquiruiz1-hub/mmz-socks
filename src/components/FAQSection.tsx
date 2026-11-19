@@ -27,7 +27,7 @@ export const FAQSection: React.FC = () => {
     },
     {
       q: '¿Cuál es el pedido mínimo para fabricar calcetines personalizados?',
-      a: 'El pedido mínimo en MMZ Socks es de 50 pares por diseño, lo que facilita a marcas, clubes, empresas y colectivos acceder a fabricación personalizada sin requerir grandes tiradas.'
+      a: 'El pedido mínimo en MMZ Socks es de 10 pares por diseño, lo que facilita a marcas, clubes, empresas y colectivos acceder a fabricación personalizada sin requerir grandes tiradas.'
     }
   ];
 

@@ -198,6 +198,7 @@ export const ConfiguratorSection: React.FC<ConfiguratorSectionProps> = ({ onSele
           },
           logo: {
             ...prev.logo,
+            allOver: false,
             url: null,
             repeatBack: false
           },
@@ -226,6 +227,7 @@ export const ConfiguratorSection: React.FC<ConfiguratorSectionProps> = ({ onSele
           },
           logo: {
             ...prev.logo,
+            allOver: false,
             url: null,
             repeatBack: false
           },
@@ -258,6 +260,7 @@ export const ConfiguratorSection: React.FC<ConfiguratorSectionProps> = ({ onSele
           },
           logo: {
             ...prev.logo,
+            allOver: false,
             url: SAMPLE_CHURRERIA_LOGO,
             scale: 1.0,
             yPos: 0.45,
@@ -289,6 +292,7 @@ export const ConfiguratorSection: React.FC<ConfiguratorSectionProps> = ({ onSele
         },
         logo: {
           ...prev.logo,
+          allOver: false,
           url: SAMPLE_CHURRERIA_LOGO,
           scale: 1.0,
           yPos: 0.45,
@@ -390,6 +394,7 @@ export const ConfiguratorSection: React.FC<ConfiguratorSectionProps> = ({ onSele
           ...prev,
           logo: {
             ...prev.logo,
+            allOver: false,
             url: finalUrl
           }
         }));
@@ -404,7 +409,20 @@ export const ConfiguratorSection: React.FC<ConfiguratorSectionProps> = ({ onSele
       ...prev,
       logo: {
         ...prev.logo,
+        allOver: false,
         url: SAMPLE_CHURRERIA_LOGO
+      }
+    }));
+  };
+
+  const setNavidadLogo = () => {
+    setActivePresetId(null);
+    setConfig((prev) => ({
+      ...prev,
+      logo: {
+        ...prev.logo,
+        allOver: true,
+        url: '/images/diseno-navidad.jpg'
       }
     }));
   };
@@ -415,6 +433,7 @@ export const ConfiguratorSection: React.FC<ConfiguratorSectionProps> = ({ onSele
       ...prev,
       logo: {
         ...prev.logo,
+        allOver: false,
         url: null
       }
     }));
@@ -912,6 +931,20 @@ export const ConfiguratorSection: React.FC<ConfiguratorSectionProps> = ({ onSele
 
                 <button
                   type="button"
+                  data-testid="btn-navidad-logo"
+                  onClick={setNavidadLogo}
+                  className={`inline-flex items-center gap-1.5 px-3 py-2.5 rounded-xl text-xs font-bold transition-colors border ${
+                    config.logo.url === '/images/diseno-navidad.jpg'
+                      ? 'bg-petrol text-white border-petrol'
+                      : 'bg-ice hover:bg-slate-200/70 text-petrol border-slate-200'
+                  }`}
+                >
+                  <Tag className="w-3.5 h-3.5 text-yarn-coral" />
+                  <span>Diseño Navidad</span>
+                </button>
+
+                <button
+                  type="button"
                   data-testid="btn-remove-logo"
                   onClick={removeLogo}
                   disabled={!config.logo.url}
@@ -1158,12 +1191,12 @@ export const ConfiguratorSection: React.FC<ConfiguratorSectionProps> = ({ onSele
               {/* Quantity quick buttons and numeric input */}
               <div className="space-y-2 pt-2">
                 <div className="flex items-center justify-between text-xs font-medium text-slate-600">
-                  <span>Cantidad de pares (mín. 50):</span>
+                  <span>Cantidad de pares (mín. 10):</span>
                   <span className="text-[11px] text-turquoise font-semibold">Escala con descuento</span>
                 </div>
 
                 <div className="grid grid-cols-6 gap-1.5">
-                  {[100, 250, 500, 1000, 2000, 5000].map((qty) => (
+                  {[10, 25, 50, 100, 250, 500].map((qty) => (
                     <button
                       key={qty}
                       type="button"
@@ -1183,12 +1216,12 @@ export const ConfiguratorSection: React.FC<ConfiguratorSectionProps> = ({ onSele
                   <span className="text-xs text-slate-500">Otro volumen:</span>
                   <input
                     type="number"
-                    min="50"
-                    step="50"
+                    min="10"
+                    step="1"
                     value={config.quantity}
                     onChange={(e) => {
-                      const val = parseInt(e.target.value) || 50;
-                      setConfig((prev) => ({ ...prev, quantity: Math.max(50, val) }));
+                      const val = parseInt(e.target.value) || 10;
+                      setConfig((prev) => ({ ...prev, quantity: Math.max(10, val) }));
                     }}
                     className="w-32 px-3 py-1.5 text-sm font-bold text-petrol border border-slate-300 rounded-xl focus:ring-2 focus:ring-turquoise"
                   />
@@ -1250,10 +1283,17 @@ export const ConfiguratorSection: React.FC<ConfiguratorSectionProps> = ({ onSele
                     <span className="font-semibold text-white">+{pricing.logoExtra.toFixed(2)} € / par</span>
                   </div>
                 )}
-                <div className="flex justify-between pt-1 border-t border-white/20">
-                  <span>Puesta a punto de telar (fija 1 sola vez):</span>
-                  <span className="font-semibold text-white">{pricing.setupFee.toFixed(2)} €</span>
-                </div>
+                {pricing.setupFee > 0 && (
+                  <div className="flex justify-between pt-1 border-t border-white/20">
+                    <span>Puesta a punto de telar (fija 1 sola vez):</span>
+                    <span className="font-semibold text-white">{pricing.setupFee.toFixed(2)} €</span>
+                  </div>
+                )}
+                {pricing.quantity > 50 && (
+                  <p className="pt-1 text-[11px] text-white/70">
+                    Más de 50 pares: el precio final se confirma con la fábrica.
+                  </p>
+                )}
               </div>
 
               {/* CTA Buttons: "Descargar presupuesto en PDF" & "Pedir este presupuesto" */}
