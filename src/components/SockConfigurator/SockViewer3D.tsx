@@ -10,6 +10,7 @@ interface SockViewer3DProps {
   config: ExtendedSockConfig;
   onSnapshotReady?: (dataUrl: string) => void;
   captureSnapshotRef?: React.MutableRefObject<(() => string | null) | null>;
+  onUseSampleLogo?: () => void;
 }
 
 // Target center point of the sock & podium assembly
@@ -437,12 +438,13 @@ interface KnitLupaProps {
   legCanvasRef: React.MutableRefObject<HTMLCanvasElement | null>;
   config: ExtendedSockConfig;
   onClose: () => void;
+  onUseSampleLogo?: () => void;
 }
 
 const LUPA_VIEW = 480; // píxeles de textura que se muestran
 const LENS_SIZE = 168;
 
-const KnitLupa: React.FC<KnitLupaProps> = ({ legCanvasRef, config, onClose }) => {
+const KnitLupa: React.FC<KnitLupaProps> = ({ legCanvasRef, config, onClose, onUseSampleLogo }) => {
   const viewRef = useRef<HTMLCanvasElement>(null);
   const lensRef = useRef<HTMLCanvasElement>(null);
   const [zoom, setZoom] = useState(4);
@@ -601,8 +603,20 @@ const KnitLupa: React.FC<KnitLupaProps> = ({ legCanvasRef, config, onClose }) =>
           />
         )}
         {!hasLogo && (
-          <div className="absolute inset-x-0 bottom-2 text-center text-[11px] text-slate-600">
-            Sube un logo o pulsa «Logo ejemplo» para verlo tejido.
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-white/90 p-4 text-center">
+            <p className="text-sm font-semibold text-slate-700">
+              Todavía no hay ningún logo en el calcetín, así que no hay nada que ampliar.
+            </p>
+            {onUseSampleLogo && (
+              <button
+                type="button"
+                onClick={onUseSampleLogo}
+                className="px-4 py-2 text-sm font-bold rounded-xl bg-petrol text-white"
+              >
+                Probar con un logo de ejemplo
+              </button>
+            )}
+            <p className="text-xs text-slate-500">O cierra la lupa y sube tu propio logo.</p>
           </div>
         )}
       </div>
@@ -619,6 +633,7 @@ export const SockViewer3D: React.FC<SockViewer3DProps> = ({
   config,
   onSnapshotReady,
   captureSnapshotRef,
+  onUseSampleLogo,
 }) => {
   const mountRef = useRef<HTMLDivElement>(null);
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
@@ -1649,7 +1664,7 @@ export const SockViewer3D: React.FC<SockViewer3DProps> = ({
       </div>
 
       {lupaOpen && (
-        <KnitLupa legCanvasRef={legCanvasRef} config={config} onClose={() => setLupaOpen(false)} />
+        <KnitLupa legCanvasRef={legCanvasRef} config={config} onClose={() => setLupaOpen(false)} onUseSampleLogo={onUseSampleLogo} />
       )}
 
       {/* Bottom Overlay: Locked Zone Notice & Drag hint */}

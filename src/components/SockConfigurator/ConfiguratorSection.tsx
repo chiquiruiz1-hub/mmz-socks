@@ -514,6 +514,7 @@ export const ConfiguratorSection: React.FC<ConfiguratorSectionProps> = ({ onSele
               config={config}
               onSnapshotReady={(data) => setSnapshotUrl(data)}
               captureSnapshotRef={captureSnapshotRef}
+              onUseSampleLogo={setSampleLogo}
             />
 
             {/* Quick summary strip below 3D */}
