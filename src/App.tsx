@@ -1,10 +1,12 @@
-import React, { useState, lazy, Suspense } from 'react';
+import React, { useState, useEffect, lazy, Suspense } from 'react';
+import Lenis from 'lenis';
 import { HeaderBanner } from './components/HeaderBanner';
 import { Navbar } from './components/Navbar';
 import { Hero } from './components/Hero';
 import { ArtisansSection } from './components/ArtisansSection';
 import { VideoSection } from './components/VideoSection';
 import { Reveal } from './components/Reveal';
+const FactoryFlight = lazy(() => import('./components/FactoryFlight').then((m) => ({ default: m.FactoryFlight })));
 const ConfiguratorSection = lazy(() =>
   import('./components/SockConfigurator/ConfiguratorSection').then((m) => ({ default: m.ConfiguratorSection }))
 );
@@ -24,6 +26,16 @@ export const App: React.FC = () => {
   const [snapshotUrl, setSnapshotUrl] = useState<string | undefined>(undefined);
   const [submittedData, setSubmittedData] = useState<any | null>(null);
 
+  // Scroll suave (Lenis), desactivado si el visitante pide menos movimiento
+  useEffect(() => {
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    const lenis = new Lenis({ lerp: 0.12 });
+    let raf = 0;
+    const tick = (t: number) => { lenis.raf(t); raf = requestAnimationFrame(tick); };
+    raf = requestAnimationFrame(tick);
+    return () => { cancelAnimationFrame(raf); lenis.destroy(); };
+  }, []);
+
   const handleSelectConfigForQuote = (config: SockConfig, snapshot?: string) => {
     setSelectedConfig(config);
     if (snapshot) setSnapshotUrl(snapshot);
@@ -34,7 +46,7 @@ export const App: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-white text-slate-800 flex flex-col font-sans overflow-x-hidden selection:bg-turquoise selection:text-white">
+    <div className="min-h-screen bg-white text-slate-800 flex flex-col font-sans overflow-x-clip selection:bg-turquoise selection:text-white relative">
       {/* Top Proposal Banner */}
       <HeaderBanner />
 
@@ -45,6 +57,10 @@ export const App: React.FC = () => {
       <main className="flex-1">
         {/* 1. Portada (Hero) */}
         <Hero />
+
+        <Suspense fallback={<div className="h-screen bg-[#0A1A23]" />}>
+          <FactoryFlight />
+        </Suspense>
 
         {/* 2. Artesanos del calcetín */}
         <Reveal><ArtisansSection /></Reveal>
