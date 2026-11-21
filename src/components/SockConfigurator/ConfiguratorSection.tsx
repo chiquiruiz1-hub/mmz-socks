@@ -14,7 +14,8 @@ import {
   Download,
   Wand2,
   Cpu,
-  ShieldCheck
+  ShieldCheck,
+  AlertTriangle
 } from 'lucide-react';
 import { SockViewer3D } from './SockViewer3D';
 import { SockConfig, NeedleCount } from '../../types/sock';
@@ -45,8 +46,8 @@ import {
   downscaleImageDataUrl
 } from '../../utils/pdfQuote';
 
-// High resolution Sample logo SVG data URI (Integrated Jacquard design)
-const SAMPLE_CHURRERIA_LOGO = `data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 360" width="600" height="360"><text x="300" y="105" font-family="Arial, Helvetica, sans-serif" font-weight="900" font-size="58" fill="%23D32F2F" text-anchor="middle" letter-spacing="4">CHURRERÍA</text><text x="300" y="235" font-family="Arial, Helvetica, sans-serif" font-weight="900" font-size="115" fill="%23D32F2F" text-anchor="middle" letter-spacing="6">PEPE</text><text x="300" y="315" font-family="Arial, Helvetica, sans-serif" font-weight="800" font-size="32" fill="%23D32F2F" text-anchor="middle" letter-spacing="6">★ DESDE 1982 ★</text></svg>`;
+// High-legibility 2-line sample logo SVG designed for 168/200 needle knitting
+const SAMPLE_CHURRERIA_LOGO = `data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 460 240" width="460" height="240"><text x="230" y="92" font-family="Arial Black, Impact, Arial, sans-serif" font-weight="900" font-size="68" fill="%23D32F2F" text-anchor="middle" textLength="436" lengthAdjust="spacingAndGlyphs">CHURRERÍA</text><text x="230" y="216" font-family="Arial Black, Impact, Arial, sans-serif" font-weight="900" font-size="134" fill="%23D32F2F" text-anchor="middle" letter-spacing="6">PEPE</text></svg>`;
 
 function sanitizeSvgMarkup(raw: string): string {
   return raw
@@ -174,7 +175,7 @@ export const ConfiguratorSection: React.FC<ConfiguratorSectionProps> = ({ onSele
     },
     logo: {
       url: null,
-      scale: 1.0,
+      scale: 1.15,
       yPos: 0.45,
       rotation: 0,
       repeatBack: false
@@ -291,7 +292,7 @@ export const ConfiguratorSection: React.FC<ConfiguratorSectionProps> = ({ onSele
             ...prev.logo,
             allOver: false,
             url: SAMPLE_CHURRERIA_LOGO,
-            scale: 1.0,
+            scale: 1.15,
             yPos: 0.45,
             rotation: 0,
             repeatBack: false
@@ -591,6 +592,28 @@ export const ConfiguratorSection: React.FC<ConfiguratorSectionProps> = ({ onSele
               onUseSampleLogo={setSampleLogo}
               onGridReady={handleGridReady}
             />
+
+            {/* Aviso amarillo bajo el visor 3D si hay texto/detalles demasiado pequeños */}
+            {config.logo.url && knitGrid?.smallDetailWarning?.hasWarning && (
+              <div
+                data-testid="small-detail-warning-viewer"
+                role="alert"
+                className="p-3.5 rounded-2xl bg-amber-50 border border-amber-300 text-amber-950 flex items-start gap-2.5 text-xs shadow-xs"
+              >
+                <AlertTriangle className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" />
+                <div className="space-y-0.5">
+                  <p className="font-bold leading-snug">
+                    Parte del dibujo es demasiado pequeña para tejerse con {knitGrid.width} agujas. Hazla más grande o simplifícala.
+                  </p>
+                  {knitGrid.smallDetailWarning.affectedZones.length > 0 && (
+                    <p className="text-[11px] text-amber-900">
+                      <strong>Zonas afectadas:</strong>{' '}
+                      {knitGrid.smallDetailWarning.affectedZones.join(' · ')}.
+                    </p>
+                  )}
+                </div>
+              </div>
+            )}
 
             {/* Quick summary strip below 3D */}
             <div className="p-4 bg-ice rounded-2xl border border-slate-200/80 flex flex-wrap items-center justify-between gap-3 text-xs sm:text-sm text-slate-700">
@@ -1228,6 +1251,28 @@ export const ConfiguratorSection: React.FC<ConfiguratorSectionProps> = ({ onSele
                 </p>
               </div>
 
+              {/* Aviso amarillo cuando el logo tiene letras o detalles demasiado pequeños para tejerse */}
+              {config.logo.url && knitGrid?.smallDetailWarning?.hasWarning && (
+                <div
+                  data-testid="small-detail-warning"
+                  role="alert"
+                  className="p-3.5 rounded-2xl bg-amber-50 border border-amber-300 text-amber-950 flex items-start gap-2.5 text-xs shadow-2xs"
+                >
+                  <AlertTriangle className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" />
+                  <div className="space-y-1">
+                    <p className="font-bold leading-snug">
+                      Parte del dibujo es demasiado pequeña para tejerse con {knitGrid.width} agujas. Hazla más grande o simplifícala.
+                    </p>
+                    {knitGrid.smallDetailWarning.affectedZones.length > 0 && (
+                      <p className="text-[11px] text-amber-900">
+                        <strong>Zonas afectadas:</strong>{' '}
+                        {knitGrid.smallDetailWarning.affectedZones.join(' · ')}.
+                      </p>
+                    )}
+                  </div>
+                </div>
+              )}
+
               {/* Active Logo Settings */}
               {config.logo.url && (
                 <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200/80 space-y-4 text-xs">
@@ -1319,7 +1364,7 @@ export const ConfiguratorSection: React.FC<ConfiguratorSectionProps> = ({ onSele
                       <input
                         type="range"
                         min="0.6"
-                        max="1.35"
+                        max="1.45"
                         step="0.05"
                         value={config.logo.scale}
                         onChange={(e) =>

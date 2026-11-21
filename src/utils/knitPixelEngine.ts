@@ -19,6 +19,14 @@ export interface KnitPaletteEntry {
   pixelCount: number;
 }
 
+export interface SmallDetailWarning {
+  hasWarning: boolean;
+  needles: NeedleCount;
+  affectedZones: string[];
+  thinPixelRatio: number;
+  tinyComponentCount: number;
+}
+
 export interface KnitPixelGrid {
   width: NeedleCount; // 168 o 200 agujas (1 píxel = 1 aguja)
   height: number; // pasadas en la caña
@@ -37,6 +45,7 @@ export interface KnitPixelGrid {
     rows: number;
   } | null;
   hasLogo: boolean;
+  smallDetailWarning: SmallDetailWarning;
 }
 
 export function hexToRgb(hex: string): [number, number, number] {
@@ -375,6 +384,252 @@ function cleanIndexedLogoGrid(
 }
 
 /**
+ * Analiza la cuadrícula pixelada del logo para detectar letras demasiado bajas
+ * (< 7 agujas) o trazos de 1 píxel que se rompen/quedan sueltos al tejer.
+ * Devuelve las zonas afectadas (superior, central, inferior) sin bloquear nada.
+ */
+function analyzeSmallLogoDetails(
+  resized: ImageData,
+  rawGrid: Int16Array,
+  cleanedGrid: Int16Array,
+  cols: number,
+  rows: number,
+  needles: NeedleCount
+): SmallDetailWarning {
+  const empty: SmallDetailWarning = {
+    hasWarning: false,
+    needles,
+    affectedZones: [],
+    thinPixelRatio: 0,
+    tinyComponentCount: 0,
+  };
+  if (cols <= 0 || rows <= 0) return empty;
+
+  const zoneNameForRow = (r: number): 'zona superior' | 'zona central' | 'zona inferior' => {
+    const frac = (r + 0.5) / rows;
+    if (frac < 0.34) return 'zona superior';
+    if (frac > 0.66) return 'zona inferior';
+    return 'zona central';
+  };
+
+  const zoneReasons = new Map<string, Set<string>>();
+  const addZoneReason = (zone: string, reason: string) => {
+    let s = zoneReasons.get(zone);
+    if (!s) {
+      s = new Set<string>();
+      zoneReasons.set(zone, s);
+    }
+    s.add(reason);
+  };
+
+  // 0) Detectar contenido que existía en el logo (alpha >= 28) pero se perdió o rompió al bajar a agujas
+  const srcPx = resized.data;
+  const zoneSourcePx = new Map<string, number>();
+  const zoneSurvivedPx = new Map<string, number>();
+  const rowSourceCounts = new Uint16Array(rows);
+  const rowOpaqueCounts = new Uint16Array(rows);
+  let totalOpaque = 0;
+  let totalRawOpaque = 0;
+
+  for (let r = 0; r < rows; r++) {
+    const z = zoneNameForRow(r);
+    let cnt = 0;
+    let srcCnt = 0;
+    for (let c = 0; c < cols; c++) {
+      const idx = r * cols + c;
+      const alpha = srcPx[idx * 4 + 3];
+      if (alpha >= 28) {
+        srcCnt++;
+        zoneSourcePx.set(z, (zoneSourcePx.get(z) || 0) + 1);
+      }
+      if (rawGrid[idx] >= 0) totalRawOpaque++;
+      if (cleanedGrid[idx] >= 0) {
+        cnt++;
+        totalOpaque++;
+        zoneSurvivedPx.set(z, (zoneSurvivedPx.get(z) || 0) + 1);
+      }
+    }
+    rowSourceCounts[r] = srcCnt;
+    rowOpaqueCounts[r] = cnt;
+  }
+
+  // Comprobar franjas de texto/detalle que se perdieron al convertir a agujas
+  let srcBandStart = -1;
+  for (let r = 0; r <= rows; r++) {
+    const active = r < rows && rowSourceCounts[r] >= 3;
+    if (active && srcBandStart < 0) {
+      srcBandStart = r;
+    } else if (!active && srcBandStart >= 0) {
+      const srcBandEnd = r - 1;
+      const bandH = srcBandEnd - srcBandStart + 1;
+      let bandSrcPx = 0;
+      let bandSurvPx = 0;
+      for (let br = srcBandStart; br <= srcBandEnd; br++) {
+        bandSrcPx += rowSourceCounts[br];
+        bandSurvPx += rowOpaqueCounts[br];
+      }
+      if (bandSrcPx >= 12) {
+        const lossRatio = (bandSrcPx - bandSurvPx) / bandSrcPx;
+        if (bandH <= 6 && lossRatio >= 0.35) {
+          const z = zoneNameForRow((srcBandStart + srcBandEnd) / 2);
+          addZoneReason(z, `texto o detalle muy pequeño (${bandH} agujas de alto)`);
+        } else if (lossRatio >= 0.65) {
+          const z = zoneNameForRow((srcBandStart + srcBandEnd) / 2);
+          addZoneReason(z, 'detalles que se pierden al tejer');
+        }
+      }
+      srcBandStart = -1;
+    }
+  }
+
+  for (const [z, srcCount] of zoneSourcePx.entries()) {
+    const survCount = zoneSurvivedPx.get(z) || 0;
+    if (srcCount >= 20 && survCount / srcCount < 0.35) {
+      addZoneReason(z, 'letras o trazos demasiado finos');
+    }
+  }
+
+  if (totalOpaque === 0) {
+    return {
+      hasWarning: zoneReasons.size > 0,
+      needles,
+      affectedZones: Array.from(zoneReasons.entries()).map(
+        ([z, rs]) => `${z} (${Array.from(rs).join(', ')})`
+      ),
+      thinPixelRatio: 1,
+      tinyComponentCount: 0,
+    };
+  }
+
+  let bandStart = -1;
+  for (let r = 0; r <= rows; r++) {
+    const active = r < rows && rowOpaqueCounts[r] >= 2;
+    if (active && bandStart < 0) {
+      bandStart = r;
+    } else if (!active && bandStart >= 0) {
+      const bandEnd = r - 1;
+      const bandH = bandEnd - bandStart + 1;
+      // Contar píxeles de esta franja para ignorar motas residuales
+      let bandPx = 0;
+      for (let br = bandStart; br <= bandEnd; br++) bandPx += rowOpaqueCounts[br];
+      if (bandH <= 6 && bandPx >= 6) {
+        const z = zoneNameForRow((bandStart + bandEnd) / 2);
+        addZoneReason(z, `texto o franja de solo ${bandH} agujas de alto`);
+      }
+      bandStart = -1;
+    }
+  }
+
+  // 2) Contar trazos finos (píxeles con <= 1 vecino ortogonal del mismo color) y componentes rotos (<= 4 px)
+  const visited = new Uint8Array(cols * rows);
+  const queue = new Int32Array(cols * rows);
+  const tinyZoneCounts = new Map<string, number>();
+  const thinZoneCounts = new Map<string, number>();
+  let thinPixels = 0;
+  let tinyComponentCount = 0;
+
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      const idx = r * cols + c;
+      const val = cleanedGrid[idx];
+      if (val < 0) continue;
+
+      let same4 = 0;
+      if (r > 0 && cleanedGrid[(r - 1) * cols + c] === val) same4++;
+      if (r + 1 < rows && cleanedGrid[(r + 1) * cols + c] === val) same4++;
+      if (c > 0 && cleanedGrid[r * cols + (c - 1)] === val) same4++;
+      if (c + 1 < cols && cleanedGrid[r * cols + (c + 1)] === val) same4++;
+
+      if (same4 <= 1) {
+        thinPixels++;
+        const z = zoneNameForRow(r);
+        thinZoneCounts.set(z, (thinZoneCounts.get(z) || 0) + 1);
+      }
+
+      if (!visited[idx]) {
+        let head = 0;
+        let tail = 0;
+        queue[tail++] = idx;
+        visited[idx] = 1;
+        let area = 0;
+        let rowSum = 0;
+
+        while (head < tail) {
+          const cur = queue[head++];
+          const cr = Math.floor(cur / cols);
+          const cc = cur % cols;
+          area++;
+          rowSum += cr;
+
+          const neighbors = [
+            cr > 0 ? cur - cols : -1,
+            cr + 1 < rows ? cur + cols : -1,
+            cc > 0 ? cur - 1 : -1,
+            cc + 1 < cols ? cur + 1 : -1,
+          ];
+          for (const nIdx of neighbors) {
+            if (nIdx >= 0 && !visited[nIdx] && cleanedGrid[nIdx] === val) {
+              visited[nIdx] = 1;
+              queue[tail++] = nIdx;
+            }
+          }
+        }
+
+        if (area <= 4) {
+          tinyComponentCount++;
+          const z = zoneNameForRow(rowSum / area);
+          tinyZoneCounts.set(z, (tinyZoneCounts.get(z) || 0) + 1);
+        }
+      }
+    }
+  }
+
+  const thinPixelRatio = thinPixels / totalOpaque;
+  const droppedRatio = totalRawOpaque > 0 ? (totalRawOpaque - totalOpaque) / totalRawOpaque : 0;
+
+  if (tinyComponentCount >= 6) {
+    for (const [z, cnt] of tinyZoneCounts.entries()) {
+      if (cnt >= 3) {
+        addZoneReason(z, 'trazos sueltos de 1 píxel');
+      }
+    }
+  }
+
+  if (thinPixelRatio >= 0.34 || (droppedRatio >= 0.14 && totalRawOpaque - totalOpaque >= 14)) {
+    let topZone = 'zona central';
+    let topCnt = -1;
+    for (const [z, cnt] of thinZoneCounts.entries()) {
+      if (cnt > topCnt) {
+        topCnt = cnt;
+        topZone = z;
+      }
+    }
+    addZoneReason(topZone, 'trazos demasiado finos');
+  }
+
+  const orderedZones: ('zona superior' | 'zona central' | 'zona inferior')[] = [
+    'zona superior',
+    'zona central',
+    'zona inferior',
+  ];
+  const affectedZones: string[] = [];
+  for (const z of orderedZones) {
+    const reasons = zoneReasons.get(z);
+    if (reasons && reasons.size > 0) {
+      affectedZones.push(`${z} (${Array.from(reasons).join(', ')})`);
+    }
+  }
+
+  return {
+    hasWarning: affectedZones.length > 0,
+    needles,
+    affectedZones,
+    thinPixelRatio: Number(thinPixelRatio.toFixed(2)),
+    tinyComponentCount,
+  };
+}
+
+/**
  * Construye la cuadrícula real de píxeles de la caña del calcetín.
  * Única fuente de verdad para:
  *  - Textura 3D de punto tejido
@@ -466,10 +721,10 @@ export function buildKnitPixelGrid(
   }
 
   // Calcular caja del logo respetando SIEMPRE los márgenes de seguridad
-  const scale = Math.max(0.5, Math.min(1.35, config.logo.scale || 1.0));
+  const scale = Math.max(0.5, Math.min(1.45, config.logo.scale || 1.15));
   const safeHeight = safeMaxRow - safeMinRow;
-  const maxLogoW = Math.min(Math.round(width * 0.44), Math.round(width * 0.34 * scale));
-  const maxLogoH = Math.min(safeHeight - 4, Math.round(height * 0.34 * scale));
+  const maxLogoW = Math.min(Math.round(width * 0.48), Math.round(width * 0.42 * scale));
+  const maxLogoH = Math.min(safeHeight - 4, Math.round(height * 0.42 * scale));
 
   let logoCols = 0;
   let logoRows = 0;
@@ -632,6 +887,13 @@ export function buildKnitPixelGrid(
 
   // 3) Procesar logo del cliente (cuantización estricta <= maxAllowedInks y limpieza de bordes)
   let logoRect: KnitPixelGrid['logoRect'] = null;
+  let smallDetailWarning: SmallDetailWarning = {
+    hasWarning: false,
+    needles: width,
+    affectedZones: [],
+    thinPixelRatio: 0,
+    tinyComponentCount: 0,
+  };
 
   if (hasLogo && logoImg) {
     if (config.logo.allOver) {
@@ -716,6 +978,16 @@ export function buildKnitPixelGrid(
 
         // Limpiar píxeles sueltos y bordes sucios
         const cleanedLogoGrid = cleanIndexedLogoGrid(rawLogoGrid, logoCols, logoRows, cleanEdges);
+
+        // Detectar textos o detalles demasiado pequeños para tejerse con el ancho elegido
+        smallDetailWarning = analyzeSmallLogoDetails(
+          resized,
+          rawLogoGrid,
+          cleanedLogoGrid,
+          logoCols,
+          logoRows,
+          width
+        );
 
         // Estampar parche + logo en cada cara activa (delante, detrás o ambos)
         const rowStart = Math.max(safeMinRow, Math.round(logoRowCenter - logoRows / 2));
@@ -869,5 +1141,6 @@ export function buildKnitPixelGrid(
     },
     logoRect,
     hasLogo,
+    smallDetailWarning,
   };
 }

@@ -23,10 +23,10 @@ interface SockViewer3DProps {
 }
 
 // Target center point of the sock & podium assembly
-const TARGET = new THREE.Vector3(0, 0.48, 0);
-const CAMERA_DISTANCE = 2.58;
-const CAMERA_FOV = 30;
-const ELEVATION_ANGLE = 0.20; // ~11.5° elevation for comfortable perspective
+const TARGET = new THREE.Vector3(0, 0.50, 0);
+const CAMERA_DISTANCE = 2.30;
+const CAMERA_FOV = 28;
+const ELEVATION_ANGLE = 0.17; // ~9.7° elevation so the sock fills ~88% of viewer height without clipping the cuff
 
 // View presets (azimuth around target in radians)
 const PRESETS = {
