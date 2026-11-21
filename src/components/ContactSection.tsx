@@ -1,17 +1,19 @@
 import React, { useState, useEffect } from 'react';
-import { 
-  Mail, 
-  Phone, 
-  MapPin, 
-  Send, 
-  Clock, 
-  ShieldCheck, 
-  CheckCircle2, 
-  Sparkles,
-  MessageCircle
+import {
+  Mail,
+  Phone,
+  MapPin,
+  Send,
+  Clock,
+  ShieldCheck,
+  CheckCircle2,
+  MessageCircle,
+  ChevronDown,
+  ChevronUp
 } from 'lucide-react';
 import { SockConfig } from '../types/sock';
 import { MATERIALS, calculatePricing } from '../utils/pricing';
+import { getFriendlyColorName } from '../data/yarnPalette';
 
 interface ContactSectionProps {
   selectedConfig?: SockConfig | null;
@@ -33,26 +35,20 @@ export const ContactSection: React.FC<ContactSectionProps> = ({
   const [deadline, setDeadline] = useState('');
   const [logoFileName, setLogoFileName] = useState('');
   const [privacyAgreed, setPrivacyAgreed] = useState(false);
+  const [showOptional, setShowOptional] = useState(false);
   const [errors, setErrors] = useState<{ [key: string]: string }>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submittedOk, setSubmittedOk] = useState(false);
 
-  // Auto-generate message note if config was sent from configurator
+  // Precargar cantidad cuando viene del configurador
   useEffect(() => {
     if (selectedConfig) {
-      const pricing = calculatePricing(selectedConfig);
-      const matName = MATERIALS.find((m) => m.id === selectedConfig.material)?.name || 'Algodón';
-      const summary = `Hola, he configurado un pedido en el simulador 3D con las siguientes opciones:
-- Material: ${matName}
-- Cantidad: ${selectedConfig.quantity} pares
-- Colores: Puño (${selectedConfig.cuffColor}), Caña (${selectedConfig.legColor}), Pie (${selectedConfig.footColor})
-- Logotipo: ${selectedConfig.logo.url ? (selectedConfig.logo.repeatBack ? 'Sí (delante y detrás)' : 'Sí (delante)') : 'Sin logotipo'}
-- Precio orientativo estimado: ${pricing.pricePerPair.toFixed(2)} €/par (${pricing.subtotal.toFixed(2)} € + IVA)`;
-      
-      setMessage(summary);
+      setPairs(String(selectedConfig.quantity));
+      setSubmittedOk(false);
     }
   }, [selectedConfig]);
 
-  // OWASP Top 10 input validation & sanitization
+  // Validación y saneado OWASP
   const sanitizeText = (text: string) => {
     return text.replace(/[<>]/g, '').trim();
   };
@@ -63,17 +59,23 @@ export const ContactSection: React.FC<ContactSectionProps> = ({
     const newErrors: { [key: string]: string } = {};
 
     const cleanName = sanitizeText(name);
-    if (!cleanName || cleanName.length < 2) {
-      newErrors.name = 'Por favor introduce tu nombre completo.';
+    if (!cleanName) {
+      newErrors.name = 'Escribe tu nombre para saber cómo dirigirnos a ti.';
+    } else if (cleanName.length < 2) {
+      newErrors.name = 'Tu nombre parece demasiado corto; escribe al menos 2 letras.';
     }
 
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!email || !emailRegex.test(email)) {
-      newErrors.email = 'Introduce una dirección de correo electrónico válida.';
+    const cleanEmail = email.trim();
+    if (!cleanEmail) {
+      newErrors.email = 'Escribe tu correo electrónico para poder enviarte el presupuesto.';
+    } else if (!cleanEmail.includes('@')) {
+      newErrors.email = 'Al correo le falta la arroba (@). Ejemplo: nombre@correo.com.';
+    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) {
+      newErrors.email = 'Revisa el dominio del correo (por ejemplo: nombre@correo.com).';
     }
 
     if (!privacyAgreed) {
-      newErrors.privacy = 'Debes aceptar la política de privacidad para solicitar presupuesto.';
+      newErrors.privacy = 'Marca esta casilla para autorizarnos a enviarte el presupuesto.';
     }
 
     if (Object.keys(newErrors).length > 0) {
@@ -86,236 +88,312 @@ export const ContactSection: React.FC<ContactSectionProps> = ({
 
     setTimeout(() => {
       setIsSubmitting(false);
+      setSubmittedOk(true);
       onFormSubmitSuccess({
         name: cleanName,
         company: sanitizeText(company),
-        email: email.trim(),
+        email: cleanEmail,
         phone: sanitizeText(phone),
         message: sanitizeText(message),
-        pairs: sanitizeText(pairs),
+        pairs: sanitizeText(pairs || (selectedConfig ? String(selectedConfig.quantity) : '')),
         deadline: sanitizeText(deadline),
-        logoFileName: sanitizeText(logoFileName),
+        logoFileName: sanitizeText(logoFileName || (selectedConfig?.logo.url ? 'Logo adjunto desde el diseñador' : '')),
         config: selectedConfig,
         snapshotUrl: snapshotUrl
       });
-    }, 600);
+    }, 350);
   };
+
+  const pricing = selectedConfig ? calculatePricing(selectedConfig) : null;
+  const matName = selectedConfig
+    ? MATERIALS.find((m) => m.id === selectedConfig.material)?.name || 'Algodón Peinado'
+    : null;
 
   return (
     <section id="contacto" className="py-20 sm:py-28 bg-ice relative scroll-mt-20">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        
+
         {/* Section Header */}
-        <div className="text-center max-w-3xl mx-auto mb-16 sm:mb-20">
+        <div className="text-center max-w-3xl mx-auto mb-12 sm:mb-16">
           <p className="font-serif-italic text-turquoise text-lg sm:text-xl font-medium mb-2">
             Hablemos de tu proyecto
           </p>
           <h2 className="text-3xl sm:text-4xl font-extrabold text-petrol-dark tracking-tight">
             Pide tu presupuesto sin compromiso
           </h2>
-          <p className="mt-4 text-base sm:text-lg text-slate-600 leading-relaxed">
-            Atención directa desde el taller de Pradoluengo para valorar las opciones de tu calcetín personalizado.
+          <p className="mt-3 text-base sm:text-lg text-slate-600 leading-relaxed">
+            Solo necesitamos tu nombre y correo. La fábrica te contestará lo antes posible.
           </p>
         </div>
 
         {/* Contact Form + Factory Info Grid */}
         <div className="grid lg:grid-cols-12 gap-10 items-start">
-          
-          {/* Left Column: Form Card */}
-          <div className="lg:col-span-7 bg-white p-6 sm:p-10 rounded-3xl shadow-soft border border-slate-200/90">
-            
-            {selectedConfig && (
-              <div className="mb-6 p-4 rounded-2xl bg-turquoise/10 border border-turquoise/20 flex items-center justify-between gap-3 text-xs sm:text-sm">
-                <div className="flex items-center gap-2 text-petrol">
-                  <Sparkles className="w-4 h-4 text-turquoise flex-shrink-0" />
-                  <span>
-                    Diseño 3D adjuntado: <strong>{selectedConfig.quantity} pares</strong> en{' '}
-                    <strong>{MATERIALS.find((m) => m.id === selectedConfig.material)?.name}</strong>
-                  </span>
+
+          {/* Left Column: Single Short Quote Form Card */}
+          <div className="lg:col-span-7 bg-white p-6 sm:p-8 rounded-3xl shadow-soft border border-slate-200/90">
+
+            {/* Resumen del diseño si viene del configurador (con miniatura 3D y logo ya adjunto) */}
+            {selectedConfig && pricing && (
+              <div
+                data-testid="contact-design-summary"
+                className="mb-6 p-4 rounded-2xl bg-ice border border-slate-200/80 space-y-3"
+              >
+                <div className="flex items-center gap-3.5">
+                  {snapshotUrl && (
+                    <img
+                      src={snapshotUrl}
+                      alt="Tu calcetín diseñado"
+                      data-testid="summary-sock-thumb"
+                      className="w-20 h-20 rounded-xl object-cover bg-[#0A1A23] border border-slate-300 flex-shrink-0"
+                    />
+                  )}
+                  <div className="flex-1 min-w-0 text-xs sm:text-sm space-y-1">
+                    <p className="font-extrabold text-petrol-dark">
+                      {pricing.quantity} pares · {matName}
+                    </p>
+                    <p className="text-slate-600 text-xs">
+                      Color: <strong>{getFriendlyColorName(selectedConfig.legColor)}</strong> · Talón y puntera:{' '}
+                      <strong>{getFriendlyColorName(selectedConfig.heelToeColor)}</strong>
+                    </p>
+                    <p className="font-extrabold text-turquoise">
+                      {pricing.pricePerPair.toFixed(2).replace('.', ',')} €/par · Total{' '}
+                      {pricing.subtotal.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} € + IVA
+                    </p>
+                  </div>
                 </div>
-                <span className="text-turquoise font-bold uppercase tracking-wider text-[11px] bg-white px-2.5 py-1 rounded-full shadow-xs">
-                  Cargado
-                </span>
+
+                {/* Logo ya adjunto desde el diseñador: no se vuelve a pedir */}
+                <div className="pt-2.5 border-t border-slate-200/80 flex items-center justify-between gap-2 text-xs">
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    {selectedConfig.logo.url ? (
+                      <>
+                        <img
+                          src={selectedConfig.logo.url}
+                          alt="Logo adjunto"
+                          data-testid="summary-logo-thumb"
+                          className="w-10 h-10 rounded-lg object-contain bg-white border border-slate-200 p-1 flex-shrink-0"
+                        />
+                        <span className="truncate text-slate-700 font-semibold">
+                          Tu logo ya va adjunto con este diseño
+                        </span>
+                      </>
+                    ) : (
+                      <span className="text-slate-500">Diseño sin logo</span>
+                    )}
+                  </div>
+                  <a
+                    href="#configurador"
+                    data-testid="btn-change-logo-contact"
+                    className="min-h-[40px] px-3 py-2 rounded-xl bg-white border border-slate-200 hover:border-turquoise text-petrol font-bold text-xs flex-shrink-0 inline-flex items-center"
+                  >
+                    {selectedConfig.logo.url ? 'Cambiar logo' : 'Añadir logo'}
+                  </a>
+                </div>
               </div>
             )}
 
-            <form onSubmit={handleSubmit} className="space-y-5" noValidate>
-              
-              {/* Name & Company */}
-              <div className="grid sm:grid-cols-2 gap-4">
+            {submittedOk ? (
+              <div
+                data-testid="quote-sent-confirmation"
+                className="p-6 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-950 space-y-2.5 text-center"
+              >
+                <CheckCircle2 className="w-10 h-10 text-emerald-600 mx-auto" />
+                <h3 className="text-lg font-extrabold">¡Solicitud enviada!</h3>
+                <p className="text-sm text-emerald-900 leading-relaxed">
+                  Hemos recibido tu diseño y tus datos. <strong>La fábrica te contestará lo antes posible.</strong>
+                </p>
+              </div>
+            ) : (
+              <form onSubmit={handleSubmit} data-testid="unified-quote-form" className="space-y-4" noValidate>
                 <div className="space-y-1.5">
-                  <label htmlFor="name" className="block text-xs font-bold text-slate-700 uppercase tracking-wider">
-                    Nombre y apellidos <span className="text-yarn-coral">*</span>
+                  <label htmlFor="name" className="block text-xs font-bold text-slate-700">
+                    Tu nombre <span className="text-yarn-coral">*</span>
                   </label>
                   <input
                     id="name"
+                    data-testid="input-quote-name"
                     type="text"
                     required
                     maxLength={100}
                     value={name}
                     onChange={(e) => setName(e.target.value)}
-                    placeholder="Ej. Carmen Gómez"
-                    className={`w-full px-4 py-3 text-sm rounded-xl border ${
+                    placeholder="Ej. Laura García"
+                    className={`w-full min-h-[46px] px-4 py-3 text-sm rounded-xl border ${
                       errors.name ? 'border-yarn-coral ring-1 ring-yarn-coral' : 'border-slate-300'
                     } focus:ring-2 focus:ring-turquoise focus:border-transparent transition-all`}
                   />
-                  {errors.name && <p className="text-xs text-yarn-coral font-medium">{errors.name}</p>}
+                  {errors.name && <p className="text-xs text-yarn-coral font-semibold">{errors.name}</p>}
                 </div>
 
                 <div className="space-y-1.5">
-                  <label htmlFor="company" className="block text-xs font-bold text-slate-700 uppercase tracking-wider">
-                    Empresa, club o peña
-                  </label>
-                  <input
-                    id="company"
-                    type="text"
-                    maxLength={120}
-                    value={company}
-                    onChange={(e) => setCompany(e.target.value)}
-                    placeholder="Ej. Club Ciclista Sierra"
-                    className="w-full px-4 py-3 text-sm rounded-xl border border-slate-300 focus:ring-2 focus:ring-turquoise focus:border-transparent transition-all"
-                  />
-                </div>
-              </div>
-
-              {/* Email & Phone */}
-              <div className="grid sm:grid-cols-2 gap-4">
-                <div className="space-y-1.5">
-                  <label htmlFor="email" className="block text-xs font-bold text-slate-700 uppercase tracking-wider">
-                    Correo electrónico <span className="text-yarn-coral">*</span>
+                  <label htmlFor="email" className="block text-xs font-bold text-slate-700">
+                    Tu correo electrónico <span className="text-yarn-coral">*</span>
                   </label>
                   <input
                     id="email"
+                    data-testid="input-quote-email"
                     type="email"
                     required
                     maxLength={120}
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     placeholder="tu@correo.com"
-                    className={`w-full px-4 py-3 text-sm rounded-xl border ${
+                    className={`w-full min-h-[46px] px-4 py-3 text-sm rounded-xl border ${
                       errors.email ? 'border-yarn-coral ring-1 ring-yarn-coral' : 'border-slate-300'
                     } focus:ring-2 focus:ring-turquoise focus:border-transparent transition-all`}
                   />
-                  {errors.email && <p className="text-xs text-yarn-coral font-medium">{errors.email}</p>}
+                  {errors.email && <p className="text-xs text-yarn-coral font-semibold">{errors.email}</p>}
                 </div>
 
-                <div className="space-y-1.5">
-                  <label htmlFor="phone" className="block text-xs font-bold text-slate-700 uppercase tracking-wider">
-                    Teléfono <span className="text-slate-400 font-normal lowercase">(opcional)</span>
-                  </label>
-                  <input
-                    id="phone"
-                    type="tel"
-                    maxLength={25}
-                    value={phone}
-                    onChange={(e) => setPhone(e.target.value)}
-                    placeholder="+34 600 000 000"
-                    className="w-full px-4 py-3 text-sm rounded-xl border border-slate-300 focus:ring-2 focus:ring-turquoise focus:border-transparent transition-all"
-                  />
-                </div>
-              </div>
-
-              {/* Cantidad, fecha y logo */}
-              <div className="grid sm:grid-cols-2 gap-5">
-                <div className="space-y-1.5">
-                  <label htmlFor="pairs" className="block text-xs font-bold text-slate-700 uppercase tracking-wider">
-                    Cantidad de pares (mín. 10)
-                  </label>
-                  <input
-                    id="pairs"
-                    type="number"
-                    min={10}
-                    inputMode="numeric"
-                    value={pairs}
-                    onChange={(e) => setPairs(e.target.value)}
-                    placeholder="Ej. 50"
-                    className="w-full px-4 py-3 text-sm rounded-xl border border-slate-300 focus:ring-2 focus:ring-turquoise focus:border-transparent transition-all"
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <label htmlFor="deadline" className="block text-xs font-bold text-slate-700 uppercase tracking-wider">
-                    Fecha en que los necesitas
-                  </label>
-                  <input
-                    id="deadline"
-                    type="date"
-                    value={deadline}
-                    onChange={(e) => setDeadline(e.target.value)}
-                    className="w-full px-4 py-3 text-sm rounded-xl border border-slate-300 focus:ring-2 focus:ring-turquoise focus:border-transparent transition-all"
-                  />
-                </div>
-              </div>
-
-              <div className="space-y-1.5">
-                <label htmlFor="logofile" className="block text-xs font-bold text-slate-700 uppercase tracking-wider">
-                  Tu logo (JPG, PNG, PDF o .ai)
-                </label>
-                <input
-                  id="logofile"
-                  type="file"
-                  accept=".jpg,.jpeg,.png,.pdf,.ai,.svg,.psd,.bmp"
-                  onChange={(e) => setLogoFileName(e.target.files?.[0]?.name || '')}
-                  className="w-full text-sm text-slate-600 file:mr-3 file:py-2 file:px-4 file:rounded-xl file:border-0 file:bg-petrol file:text-white file:font-semibold file:cursor-pointer"
-                />
-                <p className="text-[11px] text-slate-500">
-                  Nosotros preparamos el diseño para la máquina: no hace falta que lo dibujes ni lo pases a píxeles.
-                </p>
-              </div>
-
-              {/* Message */}
-              <div className="space-y-1.5">
-                <label htmlFor="message" className="block text-xs font-bold text-slate-700 uppercase tracking-wider">
-                  Detalles del pedido o comentarios
-                </label>
-                <textarea
-                  id="message"
-                  rows={4}
-                  maxLength={1500}
-                  value={message}
-                  onChange={(e) => setMessage(e.target.value)}
-                  placeholder="Cuéntanos si tienes fecha límite, tallas específicas o dudas sobre el bordado..."
-                  className="w-full px-4 py-3 text-sm rounded-xl border border-slate-300 focus:ring-2 focus:ring-turquoise focus:border-transparent transition-all"
-                />
-              </div>
-
-              {/* Privacy Checkbox */}
-              <div className="space-y-1 pt-1">
-                <label className="flex items-start gap-3 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={privacyAgreed}
-                    onChange={(e) => setPrivacyAgreed(e.target.checked)}
-                    className="mt-1 w-4 h-4 rounded text-turquoise accent-turquoise cursor-pointer"
-                  />
-                  <span className="text-xs text-slate-600 leading-relaxed">
-                    He leído y acepto la política de privacidad. Consiento el tratamiento de mis datos con el único fin de recibir el presupuesto solicitado de MMZ Socks.
-                  </span>
-                </label>
-                {errors.privacy && <p className="text-xs text-yarn-coral font-medium pl-7">{errors.privacy}</p>}
-              </div>
-
-              {/* Submit Button */}
-              <button
-                type="submit"
-                disabled={isSubmitting}
-                className="w-full py-4 px-6 rounded-2xl bg-petrol hover:bg-turquoise text-white font-bold text-base shadow-float hover:shadow-glow transition-all duration-300 flex items-center justify-center gap-2 group active:scale-[0.99] disabled:opacity-60"
-              >
-                {isSubmitting ? (
-                  <span>Procesando solicitud...</span>
-                ) : (
-                  <>
-                    <Send className="w-5 h-5 text-yarn-mustard group-hover:translate-x-1 transition-transform" />
-                    <span>Enviar solicitud de presupuesto</span>
-                  </>
+                {/* Si el cliente viene sin diseñar nada, le ofrecemos cantidad y subir logo aquí */}
+                {!selectedConfig && (
+                  <div className="grid sm:grid-cols-2 gap-4 pt-1">
+                    <div className="space-y-1.5">
+                      <label htmlFor="pairs" className="block text-xs font-bold text-slate-700">
+                        Cantidad aproximada (mín. 10)
+                      </label>
+                      <input
+                        id="pairs"
+                        type="number"
+                        min={10}
+                        inputMode="numeric"
+                        value={pairs}
+                        onChange={(e) => setPairs(e.target.value)}
+                        placeholder="Ej. 50"
+                        className="w-full min-h-[46px] px-4 py-3 text-sm rounded-xl border border-slate-300 focus:ring-2 focus:ring-turquoise"
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <label htmlFor="logofile" className="block text-xs font-bold text-slate-700">
+                        Tu logo (opcional)
+                      </label>
+                      <input
+                        id="logofile"
+                        type="file"
+                        accept=".jpg,.jpeg,.png,.pdf,.ai,.svg,.psd,.bmp"
+                        onChange={(e) => setLogoFileName(e.target.files?.[0]?.name || '')}
+                        className="w-full min-h-[46px] text-xs text-slate-600 file:mr-3 file:py-2 file:px-3 file:rounded-xl file:border-0 file:bg-petrol file:text-white file:font-semibold file:cursor-pointer"
+                      />
+                    </div>
+                  </div>
                 )}
-              </button>
 
-              <div className="flex items-center justify-center gap-2 text-xs text-slate-500 pt-2">
-                <ShieldCheck className="w-4 h-4 text-yarn-green" />
-                <span>Datos protegidos · Cero spam · Respuesta directa de taller</span>
-              </div>
+                {/* Campos opcionales colapsados por defecto */}
+                <div className="rounded-xl border border-slate-200 overflow-hidden">
+                  <button
+                    type="button"
+                    data-testid="toggle-optional-fields"
+                    onClick={() => setShowOptional((v) => !v)}
+                    className="w-full min-h-[46px] px-4 py-2.5 bg-slate-50 hover:bg-slate-100 flex items-center justify-between text-xs font-bold text-slate-700 transition-colors"
+                  >
+                    <span>Más datos (opcional)</span>
+                    {showOptional ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                  </button>
 
-            </form>
+                  {showOptional && (
+                    <div className="p-4 space-y-3.5 bg-white border-t border-slate-200 text-xs">
+                      <div className="grid sm:grid-cols-2 gap-3.5">
+                        <div className="space-y-1">
+                          <label htmlFor="phone" className="block font-bold text-slate-700">
+                            Teléfono
+                          </label>
+                          <input
+                            id="phone"
+                            type="tel"
+                            maxLength={25}
+                            value={phone}
+                            onChange={(e) => setPhone(e.target.value)}
+                            placeholder="+34 600 000 000"
+                            className="w-full min-h-[44px] px-3.5 py-2.5 text-sm rounded-xl border border-slate-300 focus:ring-2 focus:ring-turquoise"
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <label htmlFor="company" className="block font-bold text-slate-700">
+                            Empresa, club o peña
+                          </label>
+                          <input
+                            id="company"
+                            type="text"
+                            maxLength={120}
+                            value={company}
+                            onChange={(e) => setCompany(e.target.value)}
+                            placeholder="Ej. Club Ciclista Sierra"
+                            className="w-full min-h-[44px] px-3.5 py-2.5 text-sm rounded-xl border border-slate-300 focus:ring-2 focus:ring-turquoise"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="space-y-1">
+                        <label htmlFor="deadline" className="block font-bold text-slate-700">
+                          ¿Para qué fecha los necesitas?
+                        </label>
+                        <input
+                          id="deadline"
+                          type="date"
+                          value={deadline}
+                          onChange={(e) => setDeadline(e.target.value)}
+                          className="w-full min-h-[44px] px-3.5 py-2.5 text-sm rounded-xl border border-slate-300 focus:ring-2 focus:ring-turquoise"
+                        />
+                      </div>
+
+                      <div className="space-y-1">
+                        <label htmlFor="message" className="block font-bold text-slate-700">
+                          Comentarios
+                        </label>
+                        <textarea
+                          id="message"
+                          rows={3}
+                          maxLength={1500}
+                          value={message}
+                          onChange={(e) => setMessage(e.target.value)}
+                          placeholder="Tallas aproximadas o cualquier detalle..."
+                          className="w-full px-3.5 py-2.5 text-sm rounded-xl border border-slate-300 focus:ring-2 focus:ring-turquoise"
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Privacy Checkbox */}
+                <div className="space-y-1 pt-1">
+                  <label className="flex items-start gap-3 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      data-testid="input-quote-privacy"
+                      checked={privacyAgreed}
+                      onChange={(e) => setPrivacyAgreed(e.target.checked)}
+                      className="mt-0.5 w-5 h-5 rounded text-turquoise accent-turquoise cursor-pointer flex-shrink-0"
+                    />
+                    <span className="text-xs text-slate-600 leading-relaxed">
+                      Acepto que la fábrica utilice estos datos para enviarme el presupuesto de este diseño.
+                    </span>
+                  </label>
+                  {errors.privacy && <p className="text-xs text-yarn-coral font-semibold pl-8">{errors.privacy}</p>}
+                </div>
+
+                {/* Submit Button */}
+                <button
+                  type="submit"
+                  data-testid="btn-submit-quote"
+                  disabled={isSubmitting}
+                  className="w-full min-h-[52px] py-4 px-6 rounded-2xl bg-petrol hover:bg-turquoise text-white font-extrabold text-base shadow-float hover:shadow-glow transition-all duration-300 flex items-center justify-center gap-2 group active:scale-[0.99] disabled:opacity-60"
+                >
+                  {isSubmitting ? (
+                    <span>Enviando solicitud...</span>
+                  ) : (
+                    <>
+                      <Send className="w-5 h-5 text-yarn-mustard group-hover:translate-x-1 transition-transform" />
+                      <span>Enviar solicitud de presupuesto</span>
+                    </>
+                  )}
+                </button>
+
+                <div className="flex items-center justify-center gap-2 text-xs text-slate-500 pt-1">
+                  <ShieldCheck className="w-4 h-4 text-yarn-green" />
+                  <span>Datos protegidos · Cero spam · Respuesta directa de taller</span>
+                </div>
+              </form>
+            )}
           </div>
 
           {/* Right Column: Factory Contact Info & Direct Channels */}

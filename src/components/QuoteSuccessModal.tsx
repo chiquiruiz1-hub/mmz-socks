@@ -143,7 +143,7 @@ export const QuoteSuccessModal: React.FC<QuoteSuccessModalProps> = ({ data, onCl
                     />
                     <span
                       className="w-3.5 h-3.5 rounded-full border border-slate-400"
-                      style={{ backgroundColor: '#2B3140' }}
+                      style={{ backgroundColor: data.config?.heelToeColor || '#151522' }}
                       title="Refuerzo Talón/Puntera fijo"
                     />
                   </div>

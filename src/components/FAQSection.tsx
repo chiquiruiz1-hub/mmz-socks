@@ -10,12 +10,12 @@ export const FAQSection: React.FC = () => {
       a: 'Es un precio orientativo de ejemplo basado en tramos de cantidad y materiales. Al solicitar el presupuesto, la fábrica en Pradoluengo revisa los detalles específicos del logotipo y los hilos para confirmar el importe final.'
     },
     {
-      q: '¿Por qué el talón y la puntera son siempre de color gris pizarra fijo?',
-      a: 'Se trata de un refuerzo técnico para ofrecer mayor resistencia al roce y al uso en las zonas de mayor impacto. Mantenerlos en un tono pizarra homogéneo permite garantizar la durabilidad y estabilidad de la prenda.'
+      q: '¿Puedo cambiar el color del talón y la puntera?',
+      a: 'Sí, puedes elegir su color en el diseñador. Lo que no cambia es su forma, tamaño y posición, porque están ajustados a la máquina para asegurar un buen ajuste y resistencia.'
     },
     {
       q: '¿En qué formato debo enviar el logotipo de mi empresa o club?',
-      a: 'Aceptamos formatos vectoriales (.SVG, .AI, .PDF) y mapas de bits en buena resolución (.PNG, .JPG o .WebP). El equipo de fábrica adapta las líneas a la matriz de agujas para su correcto tejido.'
+      a: 'Aceptamos formatos vectoriales (.SVG, .AI, .PDF) e imágenes en buena resolución (.PNG, .JPG o .WebP). El equipo de fábrica adapta tu diseño al punto del calcetín para que quede limpio al tejer.'
     },
     {
       q: '¿Cuántos colores de hilo puede tener un calcetín personalizado?',

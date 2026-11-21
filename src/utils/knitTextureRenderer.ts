@@ -180,9 +180,22 @@ export function renderGridToKnitCanvas(
 }
 
 /**
- * Renderiza una región de la cuadrícula a resolución macro (para la Lupa)
- * dibujando cada aguja como una puntada V de punto tejido nítida y suave,
- * incluso a ampliación máxima (x8), sin ningún cuadradito pixelado ni desenfoque.
+ * Hash determinista rápido en [0, 1) por aguja (c, r) para ligera variación
+ * orgánica de brillo y tono entre puntadas, como en hilo textil real.
+ */
+function stitchHash(c: number, r: number): number {
+  let n = (c * 374761393 + r * 668265263) ^ 0x5bf03635;
+  n = Math.imul(n ^ (n >>> 13), 1274126177);
+  return ((n ^ (n >>> 16)) >>> 0) / 4294967296;
+}
+
+/**
+ * Renderiza una región de la cuadrícula a resolución macro (para la Lupa
+ * integrada sobre el visor 3D) dibujando cada aguja como una puntada en V
+ * de hilo redondeado con volumen, variación orgánica, pelusilla sutil y mezcla
+ * suave en los bordes entre colores vecinos (sin escalones de cuadrados duros).
+ *
+ * NOTA: Solo afecta al aspecto visual; el BMP de máquina sigue siendo 1 px = 1 aguja exacto.
  */
 export function renderKnitMacroRegion(
   grid: KnitPixelGrid,
@@ -195,7 +208,7 @@ export function renderKnitMacroRegion(
   showNeedleGrid: boolean
 ): void {
   const pxPerCol = outW / visibleCols;
-  const pxPerRow = pxPerCol * 0.84; // proporción real ancho/alto de una puntada de calcetín
+  const pxPerRow = pxPerCol * 0.84; // proporción real ancho/alto de una puntada
   const visibleRows = outH / pxPerRow;
 
   const startCol = centerCol - visibleCols / 2;
@@ -206,30 +219,51 @@ export function renderKnitMacroRegion(
   const firstRow = Math.floor(startRow) - 1;
   const lastRow = Math.ceil(startRow + visibleRows) + 1;
 
-  // Fondo oscuro de valle textil
   ctx.fillStyle = '#0D171F';
   ctx.fillRect(0, 0, outW, outH);
 
   const gW = grid.width;
   const gH = grid.height;
   const palette = grid.palette;
+  const pLen = palette.length;
 
-  // Precomputar colores derivados (base, claro, sombra) por cada tinta de la paleta (<=6)
-  const paletteStyles = palette.map((p) => {
-    const clamp = (v: number) => Math.max(0, Math.min(255, Math.round(v)));
-    const luma = 0.299 * p.r + 0.587 * p.g + 0.114 * p.b;
-    const boost = luma < 55 ? 24 : 18;
-    return {
-      valley: `rgb(${clamp(p.r * 0.56)},${clamp(p.g * 0.56)},${clamp(p.b * 0.56)})`,
-      leftMain: `rgb(${clamp(p.r * 1.02 + boost * 0.35)},${clamp(p.g * 1.02 + boost * 0.35)},${clamp(p.b * 1.02 + boost * 0.35)})`,
-      rightMain: `rgb(${clamp(p.r * 0.90 + boost * 0.15)},${clamp(p.g * 0.90 + boost * 0.15)},${clamp(p.b * 0.90 + boost * 0.15)})`,
-      highlight: `rgba(${clamp(p.r + 65)},${clamp(p.g + 65)},${clamp(p.b + 65)},${luma > 220 ? 0.55 : 0.38})`,
-      groove: `rgba(8, 16, 24, ${luma < 55 ? 0.55 : 0.32})`,
-    };
-  });
+  const clampByte = (v: number) => (v < 0 ? 0 : v > 255 ? 255 : Math.round(v));
 
-  const lineW = Math.max(1.4, pxPerCol * 0.36);
-  const hiLineW = Math.max(0.8, lineW * 0.34);
+  const getIdx = (col: number, row: number): number => {
+    const r = row < 0 ? 0 : row >= gH ? gH - 1 : row;
+    const c = ((col % gW) + gW) % gW;
+    const v = grid.indices[r * gW + c];
+    return v < pLen ? v : 0;
+  };
+
+  // Primera pasada: fondo suave de tejido (valle entre puntadas) con mezcla
+  // entre puntadas vecinas en bordes de color para eliminar escalones cuadrados.
+  for (let r = firstRow; r <= lastRow; r++) {
+    if (r < 0 || r >= gH) continue;
+    const y = (r - startRow) * pxPerRow;
+    for (let c = firstCol; c <= lastCol; c++) {
+      const idx = getIdx(c, r);
+      const p = palette[idx];
+      const leftP = palette[getIdx(c - 1, r)];
+      const rightP = palette[getIdx(c + 1, r)];
+      const upP = palette[getIdx(c, r - 1)];
+      const downP = palette[getIdx(c, r + 1)];
+
+      // Color del valle ligeramente mezclado con vecinos inmediatos (hilo montado)
+      const vr = (p.r * 0.56 + (leftP.r + rightP.r + upP.r + downP.r) * 0.11) * 0.62;
+      const vg = (p.g * 0.56 + (leftP.g + rightP.g + upP.g + downP.g) * 0.11) * 0.62;
+      const vb = (p.b * 0.56 + (leftP.b + rightP.b + upP.b + downP.b) * 0.11) * 0.62;
+
+      const x = (c - startCol) * pxPerCol;
+      ctx.fillStyle = `rgb(${clampByte(vr)},${clampByte(vg)},${clampByte(vb)})`;
+      ctx.fillRect(x - 0.6, y - 0.6, pxPerCol + 1.2, pxPerRow + 1.2);
+    }
+  }
+
+  // Segunda pasada: puntadas en V redondeadas con volumen, torsión y pelusilla sutil
+  const lineW = Math.max(1.6, pxPerCol * 0.39);
+  const fuzzW = lineW * 1.38;
+  const hiLineW = Math.max(0.8, lineW * 0.30);
 
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
@@ -237,73 +271,119 @@ export function renderKnitMacroRegion(
   for (let r = firstRow; r <= lastRow; r++) {
     if (r < 0 || r >= gH) continue;
     const y = (r - startRow) * pxPerRow;
-    const rowOff = r * gW;
 
     for (let c = firstCol; c <= lastCol; c++) {
-      const wrappedC = ((c % gW) + gW) % gW;
-      const idx = grid.indices[rowOff + wrappedC];
-      const st = paletteStyles[idx < paletteStyles.length ? idx : 0];
+      const idx = getIdx(c, r);
+      const p = palette[idx];
+      const leftIdx = getIdx(c - 1, r);
+      const rightIdx = getIdx(c + 1, r);
       const x = (c - startCol) * pxPerCol;
 
-      // Fondo de celda (valle del tejido)
-      ctx.fillStyle = st.valley;
-      ctx.fillRect(x - 0.5, y - 0.5, pxPerCol + 1, pxPerRow + 1);
+      // Ligera variación orgánica de brillo/tono por puntada (±3.5%)
+      const h = stitchHash(((c % gW) + gW) % gW, r);
+      const jitter = 0.965 + h * 0.07;
+      const warm = (h - 0.5) * 6;
+      const luma = 0.299 * p.r + 0.587 * p.g + 0.114 * p.b;
+      const boost = luma < 55 ? 24 : 16;
 
-      // Pata izquierda de la V (con ligera curva orgánica de la lazada)
-      const lx1 = x + pxPerCol * 0.18;
-      const ly1 = y + pxPerRow * 0.08;
-      const lx2 = x + pxPerCol * 0.44;
-      const ly2 = y + pxPerRow * 0.96;
+      // Mezcla sutil en los bordes con el color vecino (como hilo solapado sobre el contiguo)
+      const leftNeighbor = palette[leftIdx];
+      const rightNeighbor = palette[rightIdx];
+      const leftBlend = leftIdx !== idx ? 0.22 : 0;
+      const rightBlend = rightIdx !== idx ? 0.22 : 0;
 
-      // Pata derecha de la V
-      const rx1 = x + pxPerCol * 0.82;
-      const ry1 = y + pxPerRow * 0.08;
-      const rx2 = x + pxPerCol * 0.56;
-      const ry2 = y + pxPerRow * 0.96;
+      const lr = (p.r * (1 - leftBlend) + leftNeighbor.r * leftBlend) * jitter + warm;
+      const lg = (p.g * (1 - leftBlend) + leftNeighbor.g * leftBlend) * jitter;
+      const lb = (p.b * (1 - leftBlend) + leftNeighbor.b * leftBlend) * jitter - warm * 0.5;
 
-      // Sombra interior de cada pata
-      ctx.strokeStyle = st.groove;
-      ctx.lineWidth = lineW * 1.18;
+      const rr = (p.r * (1 - rightBlend) + rightNeighbor.r * rightBlend) * jitter * 0.91 + warm;
+      const rg = (p.g * (1 - rightBlend) + rightNeighbor.g * rightBlend) * jitter * 0.91;
+      const rb = (p.b * (1 - rightBlend) + rightNeighbor.b * rightBlend) * jitter * 0.91 - warm * 0.5;
+
+      // Geometría orgánica de la lazada en V (las patas se redondean y solapan con la fila inferior)
+      const lx1 = x + pxPerCol * 0.17;
+      const ly1 = y + pxPerRow * 0.04;
+      const lx2 = x + pxPerCol * 0.45;
+      const ly2 = y + pxPerRow * 1.02;
+
+      const rx1 = x + pxPerCol * 0.83;
+      const ry1 = y + pxPerRow * 0.04;
+      const rx2 = x + pxPerCol * 0.55;
+      const ry2 = y + pxPerRow * 1.02;
+
+      // 1) Pelusilla suave del contorno del hilo (suaviza el borde entre colores distintos)
+      if (pxPerCol >= 6) {
+        ctx.strokeStyle = `rgba(${clampByte(p.r)},${clampByte(p.g)},${clampByte(p.b)},0.24)`;
+        ctx.lineWidth = fuzzW;
+        ctx.beginPath();
+        ctx.moveTo(lx1, ly1);
+        ctx.quadraticCurveTo(x + pxPerCol * 0.22, y + pxPerRow * 0.56, lx2, ly2);
+        ctx.moveTo(rx1, ry1);
+        ctx.quadraticCurveTo(x + pxPerCol * 0.78, y + pxPerRow * 0.56, rx2, ry2);
+        ctx.stroke();
+      }
+
+      // 2) Sombra suave de oclusión bajo cada pata de la V
+      ctx.strokeStyle = `rgba(6, 14, 22, ${luma < 55 ? 0.52 : 0.28})`;
+      ctx.lineWidth = lineW * 1.15;
       ctx.beginPath();
-      ctx.moveTo(lx1, ly1 + pxPerRow * 0.06);
-      ctx.lineTo(lx2, ly2 + pxPerRow * 0.06);
-      ctx.moveTo(rx1, ry1 + pxPerRow * 0.06);
-      ctx.lineTo(rx2, ry2 + pxPerRow * 0.06);
+      ctx.moveTo(lx1, ly1 + pxPerRow * 0.08);
+      ctx.quadraticCurveTo(x + pxPerCol * 0.24, y + pxPerRow * 0.60, lx2, ly2 + pxPerRow * 0.05);
+      ctx.moveTo(rx1, ry1 + pxPerRow * 0.08);
+      ctx.quadraticCurveTo(x + pxPerCol * 0.76, y + pxPerRow * 0.60, rx2, ry2 + pxPerRow * 0.05);
       ctx.stroke();
 
-      // Pata izquierda principal
-      ctx.strokeStyle = st.leftMain;
+      // 3) Pata izquierda del hilo redondeado (color exacto en el centro, suave en borde)
+      ctx.strokeStyle = `rgb(${clampByte(lr + boost * 0.3)},${clampByte(lg + boost * 0.3)},${clampByte(lb + boost * 0.3)})`;
       ctx.lineWidth = lineW;
       ctx.beginPath();
       ctx.moveTo(lx1, ly1);
-      ctx.quadraticCurveTo(x + pxPerCol * 0.24, y + pxPerRow * 0.55, lx2, ly2);
+      ctx.quadraticCurveTo(x + pxPerCol * 0.23, y + pxPerRow * 0.56, lx2, ly2);
       ctx.stroke();
 
-      // Pata derecha principal
-      ctx.strokeStyle = st.rightMain;
+      // 4) Pata derecha del hilo redondeado
+      ctx.strokeStyle = `rgb(${clampByte(rr + boost * 0.14)},${clampByte(rg + boost * 0.14)},${clampByte(rb + boost * 0.14)})`;
       ctx.lineWidth = lineW;
       ctx.beginPath();
       ctx.moveTo(rx1, ry1);
-      ctx.quadraticCurveTo(x + pxPerCol * 0.76, y + pxPerRow * 0.55, rx2, ry2);
+      ctx.quadraticCurveTo(x + pxPerCol * 0.77, y + pxPerRow * 0.56, rx2, ry2);
       ctx.stroke();
 
-      // Brillo de cresta de la fibra en ambas patas (cuando hay suficiente detalle)
-      if (pxPerCol >= 6) {
-        ctx.strokeStyle = st.highlight;
+      // 5) Centro exacto de la puntada (mantiene fidelidad cromática) + brillo especular + torsión de hebra
+      if (pxPerCol >= 7) {
+        ctx.strokeStyle = `rgba(${clampByte(p.r + 68)},${clampByte(p.g + 68)},${clampByte(p.b + 68)},${luma > 220 ? 0.50 : 0.34})`;
         ctx.lineWidth = hiLineW;
         ctx.beginPath();
-        ctx.moveTo(lx1 + pxPerCol * 0.03, ly1 + pxPerRow * 0.08);
-        ctx.quadraticCurveTo(x + pxPerCol * 0.26, y + pxPerRow * 0.52, lx2 - pxPerCol * 0.02, ly2 - pxPerRow * 0.14);
-        ctx.moveTo(rx1 - pxPerCol * 0.03, ry1 + pxPerRow * 0.08);
-        ctx.quadraticCurveTo(x + pxPerCol * 0.74, y + pxPerRow * 0.52, rx2 + pxPerCol * 0.02, ry2 - pxPerRow * 0.14);
+        ctx.moveTo(lx1 + pxPerCol * 0.04, ly1 + pxPerRow * 0.12);
+        ctx.quadraticCurveTo(x + pxPerCol * 0.26, y + pxPerRow * 0.52, lx2 - pxPerCol * 0.03, ly2 - pxPerRow * 0.18);
+        ctx.moveTo(rx1 - pxPerCol * 0.04, ry1 + pxPerRow * 0.12);
+        ctx.quadraticCurveTo(x + pxPerCol * 0.74, y + pxPerRow * 0.52, rx2 + pxPerCol * 0.03, ry2 - pxPerRow * 0.18);
+        ctx.stroke();
+      }
+
+      // Micro-torsión de fibras del hilo a gran aumento (x4..x8)
+      if (pxPerCol >= 18) {
+        ctx.strokeStyle = `rgba(10, 18, 28, ${luma > 200 ? 0.12 : 0.18})`;
+        ctx.lineWidth = Math.max(0.8, pxPerCol * 0.045);
+        ctx.beginPath();
+        for (let t = 0.26; t <= 0.78; t += 0.24) {
+          const mxL = lx1 + (lx2 - lx1) * t;
+          const myL = ly1 + (ly2 - ly1) * t;
+          ctx.moveTo(mxL - pxPerCol * 0.07, myL - pxPerRow * 0.04);
+          ctx.lineTo(mxL + pxPerCol * 0.07, myL + pxPerRow * 0.05);
+
+          const mxR = rx1 + (rx2 - rx1) * t;
+          const myR = ry1 + (ry2 - ry1) * t;
+          ctx.moveTo(mxR - pxPerCol * 0.07, myR + pxPerRow * 0.05);
+          ctx.lineTo(mxR + pxPerCol * 0.07, myR - pxPerRow * 0.04);
+        }
         ctx.stroke();
       }
     }
   }
 
-  // Guías sutiles de agujas si el usuario activa "Agujas"
-  if (showNeedleGrid && pxPerCol >= 4) {
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.14)';
+  if (showNeedleGrid && pxPerCol >= 5) {
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.13)';
     ctx.lineWidth = 1;
     ctx.beginPath();
     for (let c = firstCol; c <= lastCol; c++) {

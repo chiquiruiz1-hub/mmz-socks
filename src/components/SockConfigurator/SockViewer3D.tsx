@@ -1,6 +1,5 @@
 import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import * as THREE from 'three';
-import { createPortal } from 'react-dom';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { RotateCw, Eye, Sparkles, AlertCircle, RefreshCw, ZoomIn, X } from 'lucide-react';
@@ -21,13 +20,14 @@ interface SockViewer3DProps {
   captureSnapshotRef?: React.MutableRefObject<(() => string | null) | null>;
   onUseSampleLogo?: () => void;
   onGridReady?: (grid: KnitPixelGrid) => void;
+  resetViewSignal?: number;
 }
 
-// Target center point of the sock & podium assembly
-const TARGET = new THREE.Vector3(0, 0.50, 0);
-const CAMERA_DISTANCE = 2.30;
+// Target center point of the sock & podium assembly (entero con margen arriba y abajo en móvil y escritorio)
+const TARGET = new THREE.Vector3(0, 0.48, 0);
+const CAMERA_DISTANCE = 2.42;
 const CAMERA_FOV = 28;
-const ELEVATION_ANGLE = 0.17; // ~9.7° elevation so the sock fills ~88% of viewer height without clipping the cuff
+const ELEVATION_ANGLE = 0.17;
 
 // View presets (azimuth around target in radians)
 const PRESETS = {
@@ -127,75 +127,32 @@ function createContactShadowTexture(): THREE.CanvasTexture | null {
 }
 
 // ---------------------------------------------------------------------------
-// Lupa de alta nitidez: renderiza las puntadas en V directamente desde la
-// cuadrícula real (KnitPixelGrid), sin cuadraditos ni desenfoque al ampliar.
+// Lupa integrada DENTRO del visor 3D: lente circular que sigue al dedo o al
+// ratón sobre el calcetín, sin abrir ventana a pantalla completa ni recortar.
 // ---------------------------------------------------------------------------
-interface KnitLupaProps {
+interface InlineKnitLupaProps {
   grid: KnitPixelGrid | null;
   config: ExtendedSockConfig;
   onClose: () => void;
-  onUseSampleLogo?: () => void;
 }
 
-const LUPA_VIEW_CSS = 480;
-const LENS_SIZE_CSS = 180;
-const BASE_VISIBLE_COLS = 64; // agujas visibles a zoom x1 en la vista principal
-
-const KnitLupa: React.FC<KnitLupaProps> = ({ grid, config, onClose, onUseSampleLogo }) => {
-  const viewRef = useRef<HTMLCanvasElement>(null);
+const InlineKnitLupa: React.FC<InlineKnitLupaProps> = ({ grid, config, onClose }) => {
   const lensRef = useRef<HTMLCanvasElement>(null);
-  const [zoom, setZoom] = useState(4);
-  const [pos, setPos] = useState<{ x: number; y: number }>({ x: 0.5, y: 0.5 });
-  const [showGrid, setShowGrid] = useState(false);
+  const rafRef = useRef<number | null>(null);
+  const [zoom, setZoom] = useState<2 | 4 | 6 | 8>(2);
+  // Posición inicial centrada sobre el logo en la caña del calcetín
+  const [pos, setPos] = useState<{ x: number; y: number }>({ x: 0.5, y: 0.42 });
   const [side, setSide] = useState<'front' | 'back'>('front');
 
-  const getWindowCenter = useCallback(
-    (g: KnitPixelGrid) => {
-      const rotOffset = (config.logo.rotation || 0) / 360;
-      const baseU = side === 'front' ? 0 : 0.5;
-      const u = (((baseU + rotOffset) % 1) + 1) % 1;
-      const centerCol = u * g.width;
-      const centerRow = g.logoRect
-        ? g.logoRect.rowCenter
-        : Math.round((g.safeZone.minRow + g.safeZone.maxRow) / 2);
-      return { centerCol, centerRow };
-    },
-    [config.logo.rotation, side]
-  );
+  const isMobile = typeof window !== 'undefined' && window.innerWidth < 640;
+  const lensSize = isMobile ? 156 : 186;
 
-  // Render principal de la lupa (solo cuando cambia la cuadrícula, cara o rejilla)
-  useEffect(() => {
-    const view = viewRef.current;
-    if (!grid || !view) return;
-    const dpr = Math.min(window.devicePixelRatio || 1, 2);
-    const backing = Math.round(LUPA_VIEW_CSS * dpr);
-    if (view.width !== backing || view.height !== backing) {
-      view.width = backing;
-      view.height = backing;
-    }
-    const ctx = view.getContext('2d');
-    if (!ctx) return;
-
-    const { centerCol, centerRow } = getWindowCenter(grid);
-    renderKnitMacroRegion(
-      grid,
-      ctx,
-      backing,
-      backing,
-      centerCol,
-      centerRow,
-      BASE_VISIBLE_COLS,
-      showGrid
-    );
-  }, [grid, getWindowCenter, showGrid]);
-
-  // Render de la lente ampliada directamente desde KnitPixelGrid (sin polling)
-  useEffect(() => {
+  const drawLens = useCallback(() => {
     const lens = lensRef.current;
     if (!grid || !lens) return;
 
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
-    const backing = Math.round(LENS_SIZE_CSS * dpr);
+    const backing = Math.round(lensSize * dpr);
     if (lens.width !== backing || lens.height !== backing) {
       lens.width = backing;
       lens.height = backing;
@@ -203,160 +160,136 @@ const KnitLupa: React.FC<KnitLupaProps> = ({ grid, config, onClose, onUseSampleL
     const ctx = lens.getContext('2d');
     if (!ctx) return;
 
-    const { centerCol, centerRow } = getWindowCenter(grid);
-    const pxPerColMain = LUPA_VIEW_CSS / BASE_VISIBLE_COLS;
-    const pxPerRowMain = pxPerColMain * 0.84;
-    const visibleRowsMain = LUPA_VIEW_CSS / pxPerRowMain;
+    const rotOffset = (config.logo.rotation || 0) / 360;
+    const baseU = side === 'front' ? 0 : 0.5;
+    const u = (((baseU + rotOffset) % 1) + 1) % 1;
+    const baseCol = u * grid.width;
+    const baseRow = grid.logoRect
+      ? grid.logoRect.rowCenter
+      : Math.round((grid.safeZone.minRow + grid.safeZone.maxRow) / 2);
 
-    const focusCol = centerCol + (pos.x - 0.5) * BASE_VISIBLE_COLS;
-    const focusRow = centerRow + (pos.y - 0.5) * visibleRowsMain;
+    // En x2 mostramos el dibujo ENTERO centrado con margen (sin recortar por los lados).
+    // Al subir a x4, x6, x8 ampliamos progresivamente sobre el punto bajo el dedo/ratón.
+    const fullLogoCols = grid.logoRect ? Math.max(52, Math.round(grid.logoRect.cols * 1.28)) : 64;
+    const visibleCols = Math.max(10, fullLogoCols / (zoom / 2));
 
-    const lensVisibleCols = Math.max(5, (BASE_VISIBLE_COLS * (LENS_SIZE_CSS / LUPA_VIEW_CSS)) / (zoom * 0.55));
+    // Desplazamiento suave desde el centro del logo según la posición del puntero en el visor
+    const panCols = grid.logoRect ? grid.logoRect.cols * 1.15 : grid.width * 0.36;
+    const panRows = grid.logoRect ? grid.logoRect.rows * 1.4 : grid.height * 0.45;
+    const focusCol = baseCol + (pos.x - 0.5) * panCols;
+    const focusRow = baseRow + (pos.y - 0.42) * panRows;
 
-    renderKnitMacroRegion(
-      grid,
-      ctx,
-      backing,
-      backing,
-      focusCol,
-      focusRow,
-      lensVisibleCols,
-      showGrid
-    );
-  }, [grid, getWindowCenter, pos, zoom, showGrid]);
+    renderKnitMacroRegion(grid, ctx, backing, backing, focusCol, focusRow, visibleCols, false);
+  }, [grid, config.logo.rotation, side, zoom, pos, lensSize]);
 
-  const onMove = (e: React.PointerEvent<HTMLDivElement>) => {
+  // Throttle por requestAnimationFrame para 0 bloqueos al arrastrar la lupa
+  useEffect(() => {
+    if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
+    rafRef.current = requestAnimationFrame(() => {
+      rafRef.current = null;
+      drawLens();
+    });
+    return () => {
+      if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
+    };
+  }, [drawLens]);
+
+  const handlePointer = (e: React.PointerEvent<HTMLDivElement>) => {
     const r = e.currentTarget.getBoundingClientRect();
     setPos({
-      x: Math.max(0.05, Math.min(0.95, (e.clientX - r.left) / r.width)),
-      y: Math.max(0.05, Math.min(0.95, (e.clientY - r.top) / r.height)),
+      x: Math.max(0.08, Math.min(0.92, (e.clientX - r.left) / r.width)),
+      y: Math.max(0.14, Math.min(0.86, (e.clientY - r.top) / r.height)),
     });
   };
 
-  const hasLogo = Boolean(config.logo.url);
   const backAvailable = (config.logoPosition || (config.logo.repeatBack ? 'both' : 'front')) !== 'front';
 
-  return createPortal(
+  return (
     <div
-      data-testid="lupa-modal"
-      className="fixed inset-0 z-[200] bg-[#07131A]/95 backdrop-blur-md text-white flex flex-col p-3 sm:p-6 gap-3 overflow-auto"
+      data-testid="lupa-inline-overlay"
+      className="absolute inset-0 z-30 select-none touch-none cursor-crosshair"
+      onPointerDown={(e) => {
+        if ((e.target as HTMLElement).closest('button')) return;
+        e.currentTarget.setPointerCapture?.(e.pointerId);
+        handlePointer(e);
+      }}
+      onPointerMove={(e) => {
+        if ((e.target as HTMLElement).closest('button')) return;
+        if (e.pointerType === 'mouse' || e.buttons > 0) {
+          handlePointer(e);
+        }
+      }}
     >
-      <div className="max-w-2xl mx-auto w-full flex items-center justify-between gap-2">
-        <div>
-          <p className="text-sm sm:text-base font-bold text-white flex items-center gap-2">
-            <ZoomIn className="w-4 h-4 text-yarn-mustard" />
-            <span>Ver el tejido de cerca</span>
-          </p>
-          <p className="text-[11px] sm:text-xs text-slate-300">
-            Pasa el dedo o el ratón por encima para ver cada puntada del calcetín con claridad.
-          </p>
+      {/* Barra superior pegada al visor: aumentos x2/x4/x6/x8 + Cerrar */}
+      <div className="absolute top-3 left-3 right-3 z-20 flex flex-wrap items-center justify-between gap-2 pointer-events-auto">
+        <div className="flex items-center gap-1 bg-[#0A1A23]/90 backdrop-blur-md p-1 rounded-2xl border border-white/20 shadow-lg">
+          {([2, 4, 6, 8] as const).map((z) => (
+            <button
+              key={z}
+              type="button"
+              data-testid={`lupa-zoom-${z}`}
+              onClick={() => setZoom(z)}
+              className={`px-3 min-h-[40px] rounded-xl text-xs font-extrabold transition-all ${
+                zoom === z
+                  ? 'bg-yarn-mustard text-petrol-dark shadow-xs'
+                  : 'text-white/90 hover:bg-white/10'
+              }`}
+            >
+              x{z}
+            </button>
+          ))}
+          {backAvailable && (
+            <button
+              type="button"
+              onClick={() => setSide((s) => (s === 'front' ? 'back' : 'front'))}
+              className="px-2.5 min-h-[40px] rounded-xl text-[11px] font-bold text-white/90 hover:bg-white/10"
+            >
+              {side === 'front' ? 'Detrás' : 'Delante'}
+            </button>
+          )}
         </div>
+
         <button
           type="button"
           data-testid="btn-close-lupa"
           onClick={onClose}
-          className="flex items-center gap-1 px-4 min-h-[44px] text-xs font-bold rounded-xl bg-white/15 hover:bg-white/25 text-white border border-white/15 transition-colors"
-          aria-label="Cerrar la lupa"
+          className="inline-flex items-center gap-1.5 px-3.5 min-h-[44px] rounded-2xl bg-[#0A1A23]/90 hover:bg-white/20 backdrop-blur-md text-white text-xs font-bold border border-white/25 shadow-lg transition-colors"
+          aria-label="Cerrar lupa"
         >
-          <X className="w-4 h-4" />
-          Cerrar
+          <X className="w-4 h-4 text-yarn-mustard" />
+          <span>Cerrar</span>
         </button>
       </div>
 
-      <div className="max-w-2xl mx-auto w-full flex flex-wrap items-center gap-2 text-xs">
-        <span className="font-semibold text-slate-300">Ampliación:</span>
-        {[2, 4, 6, 8].map((z) => (
-          <button
-            key={z}
-            type="button"
-            data-testid={`lupa-zoom-${z}`}
-            onClick={() => setZoom(z)}
-            className={`px-3.5 min-h-[44px] rounded-xl font-bold border transition-all ${
-              zoom === z
-                ? 'bg-yarn-mustard text-petrol-dark border-yarn-mustard'
-                : 'bg-white/10 text-white border-white/15 hover:bg-white/20'
-            }`}
-          >
-            x{z}
-          </button>
-        ))}
-        <button
-          type="button"
-          data-testid="lupa-toggle-grid"
-          onClick={() => setShowGrid((g) => !g)}
-          className={`px-3.5 min-h-[44px] rounded-xl font-bold border transition-all ${
-            showGrid
-              ? 'bg-turquoise text-white border-turquoise'
-              : 'bg-white/10 text-white border-white/15 hover:bg-white/20'
-          }`}
-        >
-          Guía de puntos
-        </button>
-        {backAvailable && (
-          <button
-            type="button"
-            onClick={() => setSide((sd) => (sd === 'front' ? 'back' : 'front'))}
-            className="px-3.5 min-h-[44px] rounded-xl font-bold border bg-white/10 text-white border-white/15 hover:bg-white/20"
-          >
-            {side === 'front' ? 'Ver detrás' : 'Ver delante'}
-          </button>
-        )}
+      {/* Punto de enfoque sobre el calcetín */}
+      <span
+        className="absolute w-2.5 h-2.5 rounded-full bg-yarn-mustard ring-2 ring-white pointer-events-none shadow"
+        style={{
+          left: `calc(${pos.x * 100}% - 5px)`,
+          top: `calc(${pos.y * 100}% - 5px)`,
+        }}
+      />
+
+      {/* Lente circular dentro del visor 3D */}
+      <canvas
+        ref={lensRef}
+        data-testid="lupa-lens-canvas"
+        className="absolute rounded-full border-[3px] border-yarn-mustard shadow-[0_14px_40px_rgba(0,0,0,0.8)] pointer-events-none"
+        style={{
+          width: lensSize,
+          height: lensSize,
+          left: `clamp(10px, calc(${pos.x * 100}% - ${lensSize / 2}px), calc(100% - ${lensSize + 10}px))`,
+          top: `clamp(60px, calc(${pos.y * 100}% - ${lensSize / 2}px), calc(100% - ${lensSize + 44}px))`,
+        }}
+      />
+
+      {/* Indicación corta en la base del visor */}
+      <div className="absolute bottom-3 left-3 right-3 flex justify-center pointer-events-none">
+        <span className="px-3 py-1 rounded-full bg-[#0A1A23]/85 backdrop-blur-md border border-white/15 text-[11px] text-slate-200 font-medium">
+          Mueve el dedo o el ratón sobre el calcetín para ver el tejido de cerca
+        </span>
       </div>
-
-      <div
-        className="relative mx-auto w-full max-w-[480px] aspect-square rounded-2xl overflow-hidden border border-white/20 touch-none select-none bg-[#0D171F] shadow-2xl cursor-crosshair"
-        onPointerMove={onMove}
-        onPointerDown={onMove}
-      >
-        <canvas
-          ref={viewRef}
-          className="w-full h-full block"
-        />
-
-        {/* Punto de enfoque */}
-        <span
-          className="absolute w-2.5 h-2.5 rounded-full bg-yarn-mustard ring-2 ring-white/90 pointer-events-none shadow"
-          style={{ left: `calc(${pos.x * 100}% - 5px)`, top: `calc(${pos.y * 100}% - 5px)` }}
-        />
-
-        {/* Lente macro circular: siempre visible para ver las puntadas V sin cuadrados */}
-        <canvas
-          ref={lensRef}
-          data-testid="lupa-lens-canvas"
-          className="absolute rounded-full border-[3px] border-yarn-mustard shadow-[0_12px_40px_rgba(0,0,0,0.75)] pointer-events-none"
-          style={{
-            width: LENS_SIZE_CSS,
-            height: LENS_SIZE_CSS,
-            left: `clamp(8px, calc(${pos.x * 100}% - ${LENS_SIZE_CSS / 2}px), calc(100% - ${LENS_SIZE_CSS + 8}px))`,
-            top: pos.y > 0.48
-              ? `clamp(8px, calc(${pos.y * 100}% - ${LENS_SIZE_CSS + 18}px), calc(100% - ${LENS_SIZE_CSS + 8}px))`
-              : `clamp(8px, calc(${pos.y * 100}% + 18px), calc(100% - ${LENS_SIZE_CSS + 8}px))`,
-          }}
-        />
-
-        {!hasLogo && (
-          <div className="absolute inset-x-3 bottom-3 flex flex-wrap items-center justify-between gap-2 bg-[#0A1A23]/90 backdrop-blur-md border border-white/15 rounded-xl p-3">
-            <p className="text-xs text-slate-200">
-              Sube un logo o prueba uno de ejemplo para ver el dibujo en puntadas.
-            </p>
-            {onUseSampleLogo && (
-              <button
-                type="button"
-                onClick={onUseSampleLogo}
-                className="px-3 py-1.5 text-xs font-bold rounded-lg bg-yarn-mustard text-petrol-dark hover:bg-white transition-colors"
-              >
-                Usar logo ejemplo
-              </button>
-            )}
-          </div>
-        )}
-      </div>
-
-      <p className="mx-auto max-w-[480px] text-[11px] leading-relaxed text-slate-400 text-center">
-        Así queda tu dibujo tejido punto a punto sobre el calcetín, respetando el puño, el talón y la puntera.
-      </p>
-    </div>,
-    document.body
+    </div>
   );
 };
 
@@ -364,8 +297,9 @@ export const SockViewer3D: React.FC<SockViewer3DProps> = ({
   config,
   onSnapshotReady,
   captureSnapshotRef,
-  onUseSampleLogo,
+  onUseSampleLogo: _onUseSampleLogo,
   onGridReady,
+  resetViewSignal,
 }) => {
   const mountRef = useRef<HTMLDivElement>(null);
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
@@ -1270,60 +1204,75 @@ export const SockViewer3D: React.FC<SockViewer3DProps> = ({
     requestRenderRef.current();
   };
 
+  // Al cambiar de paso (o pulsar Atrás/Siguiente), el calcetín vuelve solo a la vista de frente
+  const setCameraPresetRef = useRef(setCameraPreset);
+  setCameraPresetRef.current = setCameraPreset;
+  useEffect(() => {
+    if (resetViewSignal && resetViewSignal > 0) {
+      setLupaOpen(false);
+      setCameraPresetRef.current('frente');
+    }
+  }, [resetViewSignal]);
+
   return (
-    <div className="relative w-full h-[360px] sm:h-[440px] md:h-[500px] rounded-3xl overflow-hidden bg-[#0A1A23] border border-slate-800 shadow-float select-none flex flex-col justify-between">
-      {/* Top Overlay: View Presets, Lupa & Auto Rotate */}
-      <div className="absolute top-3 sm:top-4 left-3 sm:left-4 right-3 sm:right-4 z-20 flex items-center justify-between pointer-events-none gap-2">
-        {/* Camera Preset Buttons */}
-        <div className="flex items-center gap-1 bg-white/10 backdrop-blur-md p-1 rounded-2xl shadow-sm border border-white/15 pointer-events-auto">
-          {(['frente', 'lado', 'talon'] as PresetKey[]).map((key) => (
+    <div className="relative w-full h-[380px] sm:h-[450px] md:h-[500px] rounded-3xl overflow-hidden bg-[#0A1A23] border border-slate-800 shadow-float select-none flex flex-col justify-between">
+      {/* Top Overlay: View Presets, Lupa & Auto Rotate (se oculta cuando la lupa integrada está activa) */}
+      {!lupaOpen && (
+        <div className="absolute top-3 sm:top-4 left-3 sm:left-4 right-3 sm:right-4 z-20 flex items-center justify-between pointer-events-none gap-2">
+          {/* Camera Preset Buttons */}
+          <div className="flex items-center gap-1 bg-white/10 backdrop-blur-md p-1 rounded-2xl shadow-sm border border-white/15 pointer-events-auto">
+            {(['frente', 'lado', 'talon'] as PresetKey[]).map((key) => (
+              <button
+                key={key}
+                type="button"
+                onClick={() => setCameraPreset(key)}
+                className={`px-3 min-h-[40px] sm:min-h-[36px] text-xs font-bold rounded-xl transition-all capitalize ${
+                  activePreset === key && !autoRotate
+                    ? 'bg-yarn-mustard text-petrol-dark shadow-xs'
+                    : 'text-white/85 hover:bg-white/10'
+                }`}
+              >
+                {key === 'talon' ? 'Talón' : key}
+              </button>
+            ))}
+          </div>
+
+          <div className="flex items-center gap-2 pointer-events-auto">
             <button
-              key={key}
               type="button"
-              onClick={() => setCameraPreset(key)}
-              className={`px-3 min-h-[40px] sm:min-h-[36px] text-xs font-bold rounded-xl transition-all capitalize ${
-                activePreset === key && !autoRotate
-                  ? 'bg-yarn-mustard text-petrol-dark shadow-xs'
-                  : 'text-white/85 hover:bg-white/10'
-              }`}
+              data-testid="btn-open-lupa"
+              onClick={() => {
+                setCameraPreset('frente');
+                setLupaOpen(true);
+              }}
+              className="flex items-center gap-1.5 px-3.5 min-h-[44px] sm:min-h-[40px] text-xs font-bold rounded-2xl backdrop-blur-md transition-all shadow-sm border bg-white/15 text-white border-white/20 hover:bg-white/25"
+              aria-label="Abrir la lupa para ver el tejido de cerca"
             >
-              {key === 'talon' ? 'Talón' : key}
+              <ZoomIn className="w-4 h-4 text-yarn-mustard" />
+              <span>Lupa</span>
             </button>
-          ))}
-        </div>
 
-        <div className="flex items-center gap-2 pointer-events-auto">
-          <button
-            type="button"
-            data-testid="btn-open-lupa"
-            onClick={() => setLupaOpen(true)}
-            className="flex items-center gap-1.5 px-3.5 min-h-[44px] sm:min-h-[40px] text-xs font-bold rounded-2xl backdrop-blur-md transition-all shadow-sm border bg-white/15 text-white border-white/20 hover:bg-white/25"
-            aria-label="Abrir la lupa para ver el tejido de cerca"
-          >
-            <ZoomIn className="w-4 h-4 text-yarn-mustard" />
-            <span>Lupa</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => {
-              if (introAnimRef.current?.active) introAnimRef.current.active = false;
-              if (presetAnimRef.current?.active) presetAnimRef.current.active = false;
-              setAutoRotate(!autoRotate);
-              if (!autoRotate) setActivePreset(null);
-            }}
-            className={`flex items-center gap-1.5 px-3 min-h-[44px] sm:min-h-[40px] text-xs font-bold rounded-2xl backdrop-blur-md transition-all shadow-sm border ${
-              autoRotate
-                ? 'bg-turquoise text-white border-turquoise shadow-glow'
-                : 'bg-white/10 text-white/90 border-white/15 hover:bg-white/20'
-            }`}
-            aria-label={autoRotate ? 'Pausar giro continuo' : 'Activar giro continuo'}
-          >
-            <RotateCw className={`w-4 h-4 ${autoRotate ? 'animate-spin' : ''}`} />
-            <span className="hidden sm:inline">Girar</span>
-          </button>
+            <button
+              type="button"
+              onClick={() => {
+                if (introAnimRef.current?.active) introAnimRef.current.active = false;
+                if (presetAnimRef.current?.active) presetAnimRef.current.active = false;
+                setAutoRotate(!autoRotate);
+                if (!autoRotate) setActivePreset(null);
+              }}
+              className={`flex items-center gap-1.5 px-3 min-h-[44px] sm:min-h-[40px] text-xs font-bold rounded-2xl backdrop-blur-md transition-all shadow-sm border ${
+                autoRotate
+                  ? 'bg-turquoise text-white border-turquoise shadow-glow'
+                  : 'bg-white/10 text-white/90 border-white/15 hover:bg-white/20'
+              }`}
+              aria-label={autoRotate ? 'Pausar giro continuo' : 'Activar giro continuo'}
+            >
+              <RotateCw className={`w-4 h-4 ${autoRotate ? 'animate-spin' : ''}`} />
+              <span className="hidden sm:inline">Girar</span>
+            </button>
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Center 3D WebGL Canvas */}
       <div
@@ -1360,31 +1309,32 @@ export const SockViewer3D: React.FC<SockViewer3DProps> = ({
       </div>
 
       {lupaOpen && (
-        <KnitLupa
+        <InlineKnitLupa
           grid={currentGrid}
           config={config}
           onClose={() => setLupaOpen(false)}
-          onUseSampleLogo={onUseSampleLogo}
         />
       )}
 
       {/* Bottom Overlay: Reset Front View Button & Drag hint */}
-      <div className="absolute bottom-3 sm:bottom-4 left-3 sm:left-4 right-3 sm:right-4 z-20 flex items-center justify-between gap-2 pointer-events-none">
-        <button
-          type="button"
-          data-testid="btn-reset-front"
-          onClick={() => setCameraPreset('frente')}
-          className="inline-flex items-center gap-2 px-4 min-h-[44px] rounded-2xl bg-white/15 hover:bg-white/25 backdrop-blur-md text-white text-xs font-bold shadow-md border border-white/20 pointer-events-auto transition-colors"
-        >
-          <RefreshCw className="w-3.5 h-3.5 text-yarn-mustard flex-shrink-0" />
-          <span>Volver a verlo de frente</span>
-        </button>
+      {!lupaOpen && (
+        <div className="absolute bottom-3 sm:bottom-4 left-3 sm:left-4 right-3 sm:right-4 z-20 flex items-center justify-between gap-2 pointer-events-none">
+          <button
+            type="button"
+            data-testid="btn-reset-front"
+            onClick={() => setCameraPreset('frente')}
+            className="inline-flex items-center gap-2 px-4 min-h-[44px] rounded-2xl bg-white/15 hover:bg-white/25 backdrop-blur-md text-white text-xs font-bold shadow-md border border-white/20 pointer-events-auto transition-colors"
+          >
+            <RefreshCw className="w-3.5 h-3.5 text-yarn-mustard flex-shrink-0" />
+            <span>Volver a verlo de frente</span>
+          </button>
 
-        <div className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white/10 backdrop-blur-md text-slate-200 text-[11px] font-medium border border-white/15">
-          <Eye className="w-3.5 h-3.5 text-yarn-mustard" />
-          <span>Arrastra para girar</span>
+          <div className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white/10 backdrop-blur-md text-slate-200 text-[11px] font-medium border border-white/15">
+            <Eye className="w-3.5 h-3.5 text-yarn-mustard" />
+            <span>Arrastra para girar</span>
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 };

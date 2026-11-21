@@ -19,7 +19,7 @@ import {
   ChevronUp,
   Palette,
   Send,
-  CheckCircle2
+  Type
 } from 'lucide-react';
 import { SockViewer3D } from './SockViewer3D';
 import { SockConfig, NeedleCount } from '../../types/sock';
@@ -62,10 +62,6 @@ function sanitizeSvgMarkup(raw: string): string {
     .replace(/<foreignObject[\s\S]*?>[\s\S]*?<\/foreignObject>/gi, '')
     .replace(/\son[a-z]+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, '')
     .replace(/javascript\s*:/gi, '');
-}
-
-function sanitizeText(text: string): string {
-  return text.replace(/[<>]/g, '').trim();
 }
 
 type DesignPresetId = 'liso' | 'clasico' | 'deportivo' | 'corporativo';
@@ -312,11 +308,13 @@ const SimpleYarnPicker: React.FC<SimpleYarnPickerProps> = ({
 export const ConfiguratorSection: React.FC<ConfiguratorSectionProps> = ({ onSelectConfigForQuote }) => {
   const sectionRef = useRef<HTMLElement>(null);
   const stepPanelRef = useRef<HTMLDivElement>(null);
+  const knittedTextInputRef = useRef<HTMLInputElement>(null);
   const captureSnapshotRef = useRef<(() => string | null) | null>(null);
 
   const [currentStep, setCurrentStep] = useState<WizardStep>(1);
+  const [resetViewSignal, setResetViewSignal] = useState(0);
   const [snapshotUrl, setSnapshotUrl] = useState<string>('');
-  const [logoFileName, setLogoFileName] = useState<string>('');
+  const [logoFileName, setLogoFileName] = useState<string>('Logo de ejemplo (Churrería Pepe)');
   const [editingLogoPartCode, setEditingLogoPartCode] = useState<string | null>(null);
   const [showPatternOptions, setShowPatternOptions] = useState(false);
   const [showFactoryOptions, setShowFactoryOptions] = useState(false);
@@ -326,19 +324,7 @@ export const ConfiguratorSection: React.FC<ConfiguratorSectionProps> = ({ onSele
   const [bmpNotice, setBmpNotice] = useState<string | null>(null);
   const [knitGrid, setKnitGrid] = useState<KnitPixelGrid | null>(null);
   const [isInViewport, setIsInViewport] = useState(false);
-  const [activePresetId, setActivePresetId] = useState<DesignPresetId | null>('liso');
-
-  // Estado del formulario corto del Paso 4
-  const [formName, setFormName] = useState('');
-  const [formEmail, setFormEmail] = useState('');
-  const [formPhone, setFormPhone] = useState('');
-  const [formCompany, setFormCompany] = useState('');
-  const [formDeadline, setFormDeadline] = useState('');
-  const [formComments, setFormComments] = useState('');
-  const [formPrivacy, setFormPrivacy] = useState(false);
-  const [showOptionalFields, setShowOptionalFields] = useState(false);
-  const [formErrors, setFormErrors] = useState<Record<string, string>>({});
-  const [formSubmitted, setFormSubmitted] = useState(false);
+  const [activePresetId, setActivePresetId] = useState<DesignPresetId | null>('deportivo');
 
   const handleGridReady = useCallback((grid: KnitPixelGrid) => {
     setKnitGrid(grid);
@@ -348,7 +334,7 @@ export const ConfiguratorSection: React.FC<ConfiguratorSectionProps> = ({ onSele
     setSnapshotUrl(data);
   }, []);
 
-  // Estado inicial del calcetín
+  // Estado inicial: calcetín "Deportivo" ya montado y bonito para que el cliente pueda avanzar sin decidir nada
   const [config, setConfig] = useState<ExtendedSockConfig>({
     cuffColor: '#FFFFFF',
     legColor: '#FFFFFF',
@@ -361,7 +347,7 @@ export const ConfiguratorSection: React.FC<ConfiguratorSectionProps> = ({ onSele
     customCuff: false,
     customFoot: false,
     pattern: {
-      type: 'none',
+      type: 'stripes',
       color: '#1F4D63',
       stripesZone: 'cuff',
       stripesThickness: 'medium',
@@ -370,7 +356,7 @@ export const ConfiguratorSection: React.FC<ConfiguratorSectionProps> = ({ onSele
       dotsDensity: 'medium'
     },
     logo: {
-      url: null,
+      url: SAMPLE_CHURRERIA_LOGO,
       scale: 1.15,
       yPos: 0.45,
       rotation: 0,
@@ -407,15 +393,26 @@ export const ConfiguratorSection: React.FC<ConfiguratorSectionProps> = ({ onSele
   const pricing = calculatePricing(config);
 
   const goToStep = (step: WizardStep) => {
+    // Al cambiar de paso, el calcetín vuelve solo a la vista de frente
+    setResetViewSignal((n) => n + 1);
     if (step === 4) {
-      const liveSnap = captureSnapshotRef.current?.();
+      const liveSnap = captureSnapshotRef.current?.() || snapshotUrl;
       if (liveSnap) setSnapshotUrl(liveSnap);
+      onSelectConfigForQuote(config, liveSnap);
     }
     setCurrentStep(step);
-    setFormSubmitted(false);
-    // En móvil, acercamos suavemente al panel de pasos sin sacar el calcetín de contexto
     if (typeof window !== 'undefined' && window.innerWidth < 1024 && stepPanelRef.current) {
       stepPanelRef.current.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+  };
+
+  const handleGoToUnifiedForm = () => {
+    const liveSnap = captureSnapshotRef.current?.() || snapshotUrl;
+    if (liveSnap) setSnapshotUrl(liveSnap);
+    onSelectConfigForQuote(config, liveSnap);
+    const contactEl = document.getElementById('contacto');
+    if (contactEl) {
+      contactEl.scrollIntoView({ behavior: 'smooth' });
     }
   };
 
@@ -711,33 +708,6 @@ export const ConfiguratorSection: React.FC<ConfiguratorSectionProps> = ({ onSele
     }
   };
 
-  const handleStep4Submit = (e: React.FormEvent) => {
-    e.preventDefault();
-    const errs: Record<string, string> = {};
-    const cleanName = sanitizeText(formName);
-    const cleanEmail = formEmail.trim();
-    if (cleanName.length < 2) {
-      errs.name = 'Escribe tu nombre para poder dirigirnos a ti.';
-    }
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) {
-      errs.email = 'Introduce un correo electrónico válido.';
-    }
-    if (!formPrivacy) {
-      errs.privacy = 'Marca la casilla para poder enviarte el presupuesto.';
-    }
-
-    if (Object.keys(errs).length > 0) {
-      setFormErrors(errs);
-      return;
-    }
-
-    setFormErrors({});
-    const liveSnap = captureSnapshotRef.current?.() || snapshotUrl;
-    if (liveSnap) setSnapshotUrl(liveSnap);
-    onSelectConfigForQuote(config, liveSnap);
-    setFormSubmitted(true);
-  };
-
   const pat = config.pattern!;
   const logoBg = config.logoBg!;
   const logoPos = config.logoPosition || 'front';
@@ -833,6 +803,7 @@ export const ConfiguratorSection: React.FC<ConfiguratorSectionProps> = ({ onSele
               captureSnapshotRef={captureSnapshotRef}
               onUseSampleLogo={setSampleLogo}
               onGridReady={handleGridReady}
+              resetViewSignal={resetViewSignal}
             />
 
             {/* Aviso amarillo claro si alguna parte del dibujo es demasiado pequeña */}
@@ -1187,7 +1158,7 @@ export const ConfiguratorSection: React.FC<ConfiguratorSectionProps> = ({ onSele
                   2. Pon tu logo o tu nombre
                 </h3>
 
-                {/* Botones de subida (táctiles >= 44px) */}
+                {/* Botones de subida y alternativa "Escribir mi nombre" (táctiles >= 44px) */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                   <label className="min-h-[48px] inline-flex items-center justify-center gap-2 px-4 py-3 rounded-2xl border-2 border-dashed border-turquoise bg-turquoise/5 hover:bg-turquoise/10 text-turquoise text-sm font-bold cursor-pointer transition-colors">
                     <Upload className="w-4 h-4" />
@@ -1203,20 +1174,33 @@ export const ConfiguratorSection: React.FC<ConfiguratorSectionProps> = ({ onSele
 
                   <button
                     type="button"
-                    data-testid="btn-sample-logo"
-                    onClick={setSampleLogo}
-                    className={`min-h-[48px] inline-flex items-center justify-center gap-2 px-4 py-3 rounded-2xl text-xs sm:text-sm font-bold transition-colors border ${
-                      config.logo.url === SAMPLE_CHURRERIA_LOGO
-                        ? 'bg-petrol text-white border-petrol'
-                        : 'bg-ice hover:bg-slate-200/70 text-petrol border-slate-200'
-                    }`}
+                    data-testid="btn-write-name"
+                    onClick={() => {
+                      knittedTextInputRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                      knittedTextInputRef.current?.focus();
+                    }}
+                    className="min-h-[48px] inline-flex items-center justify-center gap-2 px-4 py-3 rounded-2xl text-sm font-bold transition-colors border bg-ice hover:bg-slate-200/70 text-petrol border-slate-200"
                   >
-                    <Tag className="w-4 h-4 text-yarn-coral" />
-                    <span>Probar con un ejemplo</span>
+                    <Type className="w-4 h-4 text-turquoise" />
+                    <span>Escribir mi nombre</span>
                   </button>
                 </div>
 
                 <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    data-testid="btn-sample-logo"
+                    onClick={setSampleLogo}
+                    className={`min-h-[44px] inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold transition-colors border ${
+                      config.logo.url === SAMPLE_CHURRERIA_LOGO
+                        ? 'bg-petrol text-white border-petrol'
+                        : 'bg-slate-50 hover:bg-slate-100 text-slate-700 border-slate-200'
+                    }`}
+                  >
+                    <Tag className="w-3.5 h-3.5 text-yarn-coral" />
+                    <span>Probar con ejemplo</span>
+                  </button>
+
                   <button
                     type="button"
                     data-testid="btn-navidad-logo"
@@ -1466,6 +1450,7 @@ export const ConfiguratorSection: React.FC<ConfiguratorSectionProps> = ({ onSele
 
                   <div className="flex items-center gap-2">
                     <input
+                      ref={knittedTextInputRef}
                       id="knitted-text-input"
                       data-testid="knitted-text-input"
                       type="text"
@@ -1812,22 +1797,27 @@ export const ConfiguratorSection: React.FC<ConfiguratorSectionProps> = ({ onSele
             )}
 
             {/* =============================================================== */}
-            {/* PASO 4: PIDE TU PRESUPUESTO (FORMULARIO CORTO + RESUMEN)        */}
+            {/* PASO 4: PIDE TU PRESUPUESTO (RESUMEN + ACCESO AL FORMULARIO ÚNICO) */}
             {/* =============================================================== */}
             {currentStep === 4 && (
               <div data-testid="wizard-step-4" className="bg-white p-5 rounded-3xl border border-slate-200/90 shadow-soft space-y-5">
-                <h3 className="font-extrabold text-petrol-dark text-lg">
-                  4. Pide tu presupuesto
-                </h3>
+                <div>
+                  <h3 className="font-extrabold text-petrol-dark text-lg">
+                    4. Pide tu presupuesto
+                  </h3>
+                  <p className="text-xs text-slate-500 mt-1">
+                    Tu calcetín y tu logo ya están listos. Envíalo a la fábrica o descárgalo en PDF.
+                  </p>
+                </div>
 
                 {/* Resumen visual del calcetín montado y del logo adjunto */}
-                <div className="p-3.5 bg-ice rounded-2xl border border-slate-200/80 space-y-3">
-                  <div className="flex items-center gap-3">
+                <div className="p-4 bg-ice rounded-2xl border border-slate-200/80 space-y-3">
+                  <div className="flex items-center gap-3.5">
                     {snapshotUrl && (
                       <img
                         src={snapshotUrl}
                         alt="Tu calcetín diseñado"
-                        data-testid="summary-sock-thumb"
+                        data-testid="wizard-summary-sock-thumb"
                         className="w-20 h-20 rounded-xl object-cover bg-[#0A1A23] border border-slate-300 flex-shrink-0"
                       />
                     )}
@@ -1836,15 +1826,17 @@ export const ConfiguratorSection: React.FC<ConfiguratorSectionProps> = ({ onSele
                         {pricing.quantity} pares · {selectedMaterial.name}
                       </p>
                       <p className="text-slate-600">
-                        Color: <strong>{getFriendlyColorName(config.legColor)}</strong> · Talón y puntera: <strong>{getFriendlyColorName(config.heelToeColor)}</strong>
+                        Color: <strong>{getFriendlyColorName(config.legColor)}</strong> · Talón y puntera:{' '}
+                        <strong>{getFriendlyColorName(config.heelToeColor)}</strong>
                       </p>
                       <p className="font-extrabold text-turquoise text-sm">
-                        {pricing.pricePerPair.toFixed(2).replace('.', ',')} €/par · Total {pricing.subtotal.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} € + IVA
+                        {pricing.pricePerPair.toFixed(2).replace('.', ',')} €/par · Total{' '}
+                        {pricing.subtotal.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} € + IVA
                       </p>
                     </div>
                   </div>
 
-                  {/* Miniatura del logo ya adjunto (sin pedirlo otra vez) */}
+                  {/* Miniatura del logo ya adjunto */}
                   <div className="pt-2.5 border-t border-slate-200/80 flex items-center justify-between gap-2 text-xs">
                     <div className="flex items-center gap-2.5 min-w-0">
                       {config.logo.url ? (
@@ -1852,11 +1844,11 @@ export const ConfiguratorSection: React.FC<ConfiguratorSectionProps> = ({ onSele
                           <img
                             src={config.logo.url}
                             alt="Logo adjunto"
-                            data-testid="summary-logo-thumb"
+                            data-testid="wizard-summary-logo-thumb"
                             className="w-10 h-10 rounded-lg object-contain bg-white border border-slate-200 p-1 flex-shrink-0"
                           />
                           <span className="truncate text-slate-700 font-semibold">
-                            Logo adjunto: {logoFileName || 'Imagen cargada'}
+                            {logoFileName || 'Logo adjunto'}
                           </span>
                         </>
                       ) : (
@@ -1874,162 +1866,16 @@ export const ConfiguratorSection: React.FC<ConfiguratorSectionProps> = ({ onSele
                   </div>
                 </div>
 
-                {/* Mensaje de confirmación tras enviar */}
-                {formSubmitted ? (
-                  <div
-                    data-testid="quote-sent-confirmation"
-                    className="p-5 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-950 space-y-2.5 text-center"
-                  >
-                    <CheckCircle2 className="w-10 h-10 text-emerald-600 mx-auto" />
-                    <h4 className="text-base font-extrabold">¡Solicitud enviada!</h4>
-                    <p className="text-xs sm:text-sm text-emerald-900 leading-relaxed">
-                      Hemos recibido tu diseño ({pricing.quantity} pares de {selectedMaterial.name}) junto con tus datos. <strong>La fábrica te contestará lo antes posible.</strong>
-                    </p>
-                  </div>
-                ) : (
-                  <form onSubmit={handleStep4Submit} className="space-y-3.5" noValidate>
-                    <div>
-                      <label htmlFor="wizard-name" className="block text-xs font-bold text-slate-700 mb-1">
-                        Tu nombre *
-                      </label>
-                      <input
-                        id="wizard-name"
-                        data-testid="input-quote-name"
-                        type="text"
-                        required
-                        value={formName}
-                        onChange={(e) => setFormName(e.target.value)}
-                        placeholder="Ej: Laura García"
-                        className="w-full min-h-[44px] px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm text-slate-800 focus:ring-2 focus:ring-turquoise focus:outline-none"
-                      />
-                      {formErrors.name && (
-                        <p className="text-xs text-red-600 mt-1">{formErrors.name}</p>
-                      )}
-                    </div>
-
-                    <div>
-                      <label htmlFor="wizard-email" className="block text-xs font-bold text-slate-700 mb-1">
-                        Tu correo electrónico *
-                      </label>
-                      <input
-                        id="wizard-email"
-                        data-testid="input-quote-email"
-                        type="email"
-                        required
-                        value={formEmail}
-                        onChange={(e) => setFormEmail(e.target.value)}
-                        placeholder="Ej: laura@correo.com"
-                        className="w-full min-h-[44px] px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm text-slate-800 focus:ring-2 focus:ring-turquoise focus:outline-none"
-                      />
-                      {formErrors.email && (
-                        <p className="text-xs text-red-600 mt-1">{formErrors.email}</p>
-                      )}
-                    </div>
-
-                    {/* Cantidad ya rellenada automáticamente */}
-                    <div className="px-3.5 py-2.5 rounded-xl bg-slate-50 border border-slate-200 flex items-center justify-between text-xs">
-                      <span className="text-slate-600 font-semibold">Cantidad elegida:</span>
-                      <span className="font-extrabold text-petrol-dark">{pricing.quantity} pares</span>
-                    </div>
-
-                    {/* Más datos opcionales colapsados */}
-                    <div className="rounded-xl border border-slate-200 overflow-hidden">
-                      <button
-                        type="button"
-                        data-testid="toggle-optional-fields"
-                        onClick={() => setShowOptionalFields((v) => !v)}
-                        className="w-full min-h-[44px] px-3.5 py-2 bg-slate-50 hover:bg-slate-100 flex items-center justify-between text-xs font-bold text-slate-700"
-                      >
-                        <span>Más datos (opcional)</span>
-                        {showOptionalFields ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
-                      </button>
-
-                      {showOptionalFields && (
-                        <div className="p-3.5 space-y-3 bg-white border-t border-slate-200 text-xs">
-                          <div className="grid sm:grid-cols-2 gap-3">
-                            <div>
-                              <label htmlFor="wizard-phone" className="block font-semibold text-slate-700 mb-1">
-                                Teléfono
-                              </label>
-                              <input
-                                id="wizard-phone"
-                                type="tel"
-                                value={formPhone}
-                                onChange={(e) => setFormPhone(e.target.value)}
-                                placeholder="Ej: 600 123 456"
-                                className="w-full min-h-[44px] px-3 py-2 rounded-xl border border-slate-300 text-sm"
-                              />
-                            </div>
-                            <div>
-                              <label htmlFor="wizard-company" className="block font-semibold text-slate-700 mb-1">
-                                Empresa o club
-                              </label>
-                              <input
-                                id="wizard-company"
-                                type="text"
-                                value={formCompany}
-                                onChange={(e) => setFormCompany(e.target.value)}
-                                placeholder="Opcional"
-                                className="w-full min-h-[44px] px-3 py-2 rounded-xl border border-slate-300 text-sm"
-                              />
-                            </div>
-                          </div>
-                          <div>
-                            <label htmlFor="wizard-deadline" className="block font-semibold text-slate-700 mb-1">
-                              ¿Para qué fecha los necesitas?
-                            </label>
-                            <input
-                              id="wizard-deadline"
-                              type="text"
-                              value={formDeadline}
-                              onChange={(e) => setFormDeadline(e.target.value)}
-                              placeholder="Ej: finales de mes"
-                              className="w-full min-h-[44px] px-3 py-2 rounded-xl border border-slate-300 text-sm"
-                            />
-                          </div>
-                          <div>
-                            <label htmlFor="wizard-comments" className="block font-semibold text-slate-700 mb-1">
-                              Comentarios
-                            </label>
-                            <textarea
-                              id="wizard-comments"
-                              rows={2}
-                              value={formComments}
-                              onChange={(e) => setFormComments(e.target.value)}
-                              placeholder="Tallas aproximadas o cualquier detalle..."
-                              className="w-full px-3 py-2 rounded-xl border border-slate-300 text-sm"
-                            />
-                          </div>
-                        </div>
-                      )}
-                    </div>
-
-                    <label className="flex items-start gap-2.5 text-xs text-slate-600 cursor-pointer pt-1">
-                      <input
-                        type="checkbox"
-                        data-testid="input-quote-privacy"
-                        checked={formPrivacy}
-                        onChange={(e) => setFormPrivacy(e.target.checked)}
-                        className="w-5 h-5 mt-0.5 rounded accent-turquoise cursor-pointer flex-shrink-0"
-                      />
-                      <span>
-                        Acepto que la fábrica utilice estos datos para enviarme el presupuesto de este diseño.
-                      </span>
-                    </label>
-                    {formErrors.privacy && (
-                      <p className="text-xs text-red-600">{formErrors.privacy}</p>
-                    )}
-
-                    <button
-                      type="submit"
-                      data-testid="btn-submit-quote"
-                      className="w-full min-h-[52px] flex items-center justify-center gap-2 py-3.5 px-6 rounded-2xl bg-turquoise hover:bg-turquoise-light text-white font-extrabold text-base shadow-lg transition-all"
-                    >
-                      <Send className="w-4 h-4" />
-                      <span>Enviar solicitud de presupuesto</span>
-                    </button>
-                  </form>
-                )}
+                {/* Botón principal al formulario único de presupuesto (#contacto) */}
+                <button
+                  type="button"
+                  data-testid="btn-go-to-contact-form"
+                  onClick={handleGoToUnifiedForm}
+                  className="w-full min-h-[52px] flex items-center justify-center gap-2 py-3.5 px-6 rounded-2xl bg-turquoise hover:bg-turquoise-light text-white font-extrabold text-base shadow-lg transition-all"
+                >
+                  <Send className="w-4 h-4" />
+                  <span>Ir al formulario para pedir presupuesto</span>
+                </button>
 
                 {/* Botón de descarga de presupuesto en PDF */}
                 <button
@@ -2099,7 +1945,7 @@ export const ConfiguratorSection: React.FC<ConfiguratorSectionProps> = ({ onSele
             <button
               type="button"
               data-testid="btn-mobile-request-quote"
-              onClick={() => goToStep(4)}
+              onClick={handleGoToUnifiedForm}
               className="min-h-[44px] px-4 py-2.5 bg-turquoise hover:bg-turquoise-light text-white text-xs sm:text-sm font-extrabold rounded-xl shadow-md inline-flex items-center gap-1.5 flex-shrink-0"
             >
               <FileCheck className="w-4 h-4 text-yarn-mustard" />
