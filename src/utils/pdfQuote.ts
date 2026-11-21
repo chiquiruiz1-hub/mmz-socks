@@ -5,6 +5,11 @@ import {
   MATERIALS,
   calculatePricing
 } from './pricing';
+import {
+  findTecnoYarnByHex,
+  getTecnoYarnLabel,
+  DEFAULT_HEEL_TOE_COLOR
+} from '../data/yarnPalette';
 
 export const YARN_COLOR_NAMES: Record<string, string> = {
   '#ffffff': 'Blanco Puro',
@@ -34,19 +39,23 @@ export function formatSpanishEuro(value: number): string {
 }
 
 /**
- * Obtiene el nombre legible de un color HEX junto con su código.
+ * Obtiene el nombre legible de un color HEX junto con su código (priorizando carta TecnoYarn).
  */
 export function getColorLabel(hex: string): string {
   const clean = (hex || '#FFFFFF').trim();
+  const ty = findTecnoYarnByHex(clean);
+  if (ty) return `${ty.code} ${ty.name} (${ty.hex})`;
   const name = YARN_COLOR_NAMES[clean.toLowerCase()];
   return name ? `${name} (${clean.toUpperCase()})` : `Personalizado (${clean.toUpperCase()})`;
 }
 
 /**
- * Nombre corto del color (sin repetir HEX si tiene nombre en paleta)
+ * Nombre corto del color (incluye código TecnoYarn p. ej. "E33 Rosso").
  */
 export function getShortColorName(hex: string): string {
   const clean = (hex || '#FFFFFF').trim();
+  const ty = findTecnoYarnByHex(clean);
+  if (ty) return `${ty.code} ${ty.name}`;
   return YARN_COLOR_NAMES[clean.toLowerCase()] || clean.toUpperCase();
 }
 
@@ -287,6 +296,7 @@ export interface GenerateQuotePdfOptions {
   config: ExtendedSockConfig;
   pricing?: PriceBreakdown;
   snapshotDataUrl?: string;
+  machineInks?: { code: string; name: string; hex: string }[];
 }
 
 /**
@@ -296,7 +306,8 @@ export interface GenerateQuotePdfOptions {
 export async function generateAndDownloadQuotePdf({
   config,
   pricing: providedPricing,
-  snapshotDataUrl
+  snapshotDataUrl,
+  machineInks
 }: GenerateQuotePdfOptions): Promise<{ fileName: string; quoteNumber: string }> {
   // Reutiliza la función existente de cálculo de precios sin duplicar lógica
   const pricing = providedPricing ?? calculatePricing(config);
@@ -502,11 +513,12 @@ export async function generateAndDownloadQuotePdf({
   doc.setTextColor(...PETROL_DARK);
   doc.text('Colores zonas:', specLabelX, specY);
 
+  const heelToeHex = config.heelToeColor || DEFAULT_HEEL_TOE_COLOR;
   const colorZones = [
-    { zone: 'Caña', hex: config.legColor },
-    { zone: 'Puño', hex: config.cuffColor },
-    { zone: 'Pie', hex: config.footColor },
-    { zone: 'Talón/Punt.', hex: '#2B3140' }
+    { zone: 'Caña', hex: config.legColor, label: getShortColorName(config.legColor) },
+    { zone: 'Puño', hex: config.cuffColor, label: getShortColorName(config.cuffColor) },
+    { zone: 'Pie', hex: config.footColor, label: getShortColorName(config.footColor) },
+    { zone: 'Talón/Punt.', hex: heelToeHex, label: getTecnoYarnLabel(heelToeHex) }
   ];
 
   colorZones.forEach((sw, i) => {
@@ -523,16 +535,21 @@ export async function generateAndDownloadQuotePdf({
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(7.4);
     doc.setTextColor(...SLATE_800);
-    doc.text(`${sw.zone}: ${getShortColorName(sw.hex)}`, cx + 4.2, cy);
+    doc.text(`${sw.zone}: ${sw.label}`, cx + 4.2, cy);
   });
 
   specY += 9.8;
+
+  const inksSummary =
+    machineInks && machineInks.length > 0
+      ? ` · Carta TecnoYarn: ${machineInks.map((m) => `${m.code} ${m.name}`).join(', ')}`
+      : '';
 
   drawSpecRow(
     'Hilaturas activas:',
     `${pricing.totalColorsCount} ${
       pricing.totalColorsCount === 1 ? 'color de hilo' : 'colores de hilo'
-    } (hasta 2 colores incluidos sin suplemento)`
+    } (hasta 2 colores incluidos)${inksSummary}`
   );
   drawSpecRow('Motivo tejido:', patternText);
   drawSpecRow('Logotipo:', logoText);

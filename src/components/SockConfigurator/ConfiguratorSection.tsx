@@ -15,14 +15,17 @@ import {
   Wand2,
   Cpu,
   ShieldCheck,
-  AlertTriangle
+  AlertTriangle,
+  Search
 } from 'lucide-react';
 import { SockViewer3D } from './SockViewer3D';
 import { SockConfig, NeedleCount } from '../../types/sock';
 import {
-  YARN_PALETTE,
+  COTTON_BASE_PALETTE,
+  TECNOYARN_PALETTE,
   DEFAULT_HEEL_TOE_COLOR,
-  getYarnColorName
+  getYarnColorName,
+  findNearestTecnoYarnByHex
 } from '../../data/yarnPalette';
 import {
   KnitPixelGrid,
@@ -100,8 +103,8 @@ const SwatchPicker: React.FC<SwatchPickerProps> = ({
           </span>
         )}
       </div>
-      <div className="grid grid-cols-6 sm:grid-cols-12 gap-1.5">
-        {YARN_PALETTE.map((c) => {
+      <div className="grid grid-cols-6 sm:grid-cols-11 gap-1.5">
+        {COTTON_BASE_PALETTE.map((c) => {
           const isSelected = value.trim().toLowerCase() === c.hex.toLowerCase();
           return (
             <button
@@ -134,6 +137,104 @@ const SwatchPicker: React.FC<SwatchPickerProps> = ({
           );
         })}
       </div>
+    </div>
+  );
+};
+
+interface TecnoYarnPickerProps {
+  label: string;
+  value: string;
+  onChange: (hex: string) => void;
+  idPrefix: string;
+}
+
+const TecnoYarnPicker: React.FC<TecnoYarnPickerProps> = ({
+  label,
+  value,
+  onChange,
+  idPrefix
+}) => {
+  const [query, setQuery] = useState('');
+  const selected = findNearestTecnoYarnByHex(value);
+  const cleanQuery = query.trim().toLowerCase();
+  const filtered = cleanQuery
+    ? TECNOYARN_PALETTE.filter(
+        (c) =>
+          c.code.toLowerCase().includes(cleanQuery) ||
+          c.name.toLowerCase().includes(cleanQuery)
+      )
+    : TECNOYARN_PALETTE;
+
+  return (
+    <div className="space-y-2.5" data-testid={`${idPrefix}-tecnoyarn-picker`}>
+      <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+        <span className="font-semibold text-slate-700">{label}</span>
+        <span
+          data-testid={`${idPrefix}-selected-code`}
+          className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-white border border-slate-200 font-bold text-petrol-dark shadow-2xs"
+        >
+          <span
+            className="w-3.5 h-3.5 rounded-sm border border-black/15 flex-shrink-0"
+            style={{ backgroundColor: selected.hex }}
+          />
+          <span>
+            {selected.code} {selected.name}
+          </span>
+        </span>
+      </div>
+
+      {/* Buscador rápido por código o nombre en los 110 colores TecnoYarn */}
+      <div className="relative">
+        <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+        <input
+          type="text"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Buscar color TecnoYarn (ej. E33, Rosso, Navy, Fluo)..."
+          aria-label="Buscar color en la carta TecnoYarn"
+          data-testid={`${idPrefix}-search-input`}
+          className="w-full pl-8 pr-3 py-1.5 rounded-xl border border-slate-200 bg-white text-xs text-slate-800 placeholder:text-slate-400 focus:ring-2 focus:ring-turquoise focus:outline-none"
+        />
+      </div>
+
+      {/* Rejilla compacta desplazable con código visible en cada muestra */}
+      <div className="max-h-48 overflow-y-auto pr-1 grid grid-cols-4 sm:grid-cols-5 gap-1.5">
+        {filtered.map((c) => {
+          const isSelected = selected.code === c.code;
+          const luma = 0.299 * c.r + 0.587 * c.g + 0.114 * c.b;
+          return (
+            <button
+              key={`${idPrefix}-${c.code}`}
+              type="button"
+              data-testid={`${idPrefix}-code-${c.code}`}
+              onClick={() => onChange(c.hex)}
+              title={`${c.code} ${c.name} (${c.hex})`}
+              className={`flex items-center gap-1.5 px-1.5 py-1 rounded-xl border text-left transition-all ${
+                isSelected
+                  ? 'ring-2 ring-turquoise border-petrol bg-white shadow-xs'
+                  : 'border-slate-200/90 bg-white/80 hover:border-slate-400'
+              }`}
+            >
+              <span
+                className="w-4 h-4 rounded-md border border-black/15 flex-shrink-0 flex items-center justify-center"
+                style={{ backgroundColor: c.hex }}
+              >
+                {isSelected && (
+                  <Check className={`w-2.5 h-2.5 ${luma > 165 ? 'text-slate-900' : 'text-white'}`} />
+                )}
+              </span>
+              <span className="truncate text-[10px] leading-tight">
+                <strong className="text-petrol-dark">{c.code}</strong>{' '}
+                <span className="text-slate-500">{c.name}</span>
+              </span>
+            </button>
+          );
+        })}
+      </div>
+
+      <p className="text-[10px] text-slate-500">
+        Carta TecnoYarn Poliammide Nylon 6 ({TECNOYARN_PALETTE.length} colores). Mostrando {filtered.length}.
+      </p>
     </div>
   );
 };
@@ -520,7 +621,8 @@ export const ConfiguratorSection: React.FC<ConfiguratorSectionProps> = ({ onSele
       await generateAndDownloadQuotePdf({
         config,
         pricing,
-        snapshotDataUrl: liveSnap
+        snapshotDataUrl: liveSnap,
+        machineInks: knitGrid?.palette
       });
     } catch (err) {
       console.error('Error al generar el presupuesto en PDF:', err);
@@ -536,12 +638,14 @@ export const ConfiguratorSection: React.FC<ConfiguratorSectionProps> = ({ onSele
     try {
       const liveSnap = captureSnapshotRef.current?.() || snapshotUrl;
       if (liveSnap) setSnapshotUrl(liveSnap);
-      const { bmpFilename } = await downloadMachineDesignFiles(
+      const { bmpFilename, colorCodes, heelToeLabel } = await downloadMachineDesignFiles(
         knitGrid,
         config.heelToeColor,
         liveSnap
       );
-      setBmpNotice(`Descargado ${bmpFilename} (8 bits, ${knitGrid.width}×${knitGrid.height} px) y vista previa PNG.`);
+      setBmpNotice(
+        `Descargado ${bmpFilename} (8 bits, ${knitGrid.width}×${knitGrid.height} px) y vista previa PNG · Tintas TecnoYarn: ${colorCodes.join(', ')} · Talón/puntera: ${heelToeLabel}.`
+      );
     } catch (err) {
       console.error('Error al generar el diseño BMP:', err);
       setBmpNotice('No se pudo generar el archivo. Inténtalo de nuevo.');
@@ -663,20 +767,21 @@ export const ConfiguratorSection: React.FC<ConfiguratorSectionProps> = ({ onSele
                 </div>
               </div>
 
-              {/* Active palette swatches from KnitPixelGrid */}
+              {/* Active palette swatches from KnitPixelGrid (exact TecnoYarn codes) */}
               {knitGrid && knitGrid.palette.length > 0 && (
                 <div className="flex flex-wrap items-center gap-1.5" data-testid="machine-inks-swatches">
                   {knitGrid.palette.map((entry) => (
                     <span
-                      key={`ink-${entry.index}-${entry.hex}`}
-                      className="inline-flex items-center gap-1.5 px-2 py-1 rounded-lg bg-white/10 border border-white/10 text-[11px] text-slate-200"
-                      title={`${entry.name} (${entry.hex})`}
+                      key={`ink-${entry.index}-${entry.code}`}
+                      className="inline-flex items-center gap-1.5 px-2 py-1 rounded-lg bg-white/10 border border-white/10 text-[11px] text-slate-100"
+                      title={`${entry.code} ${entry.name} (${entry.hex})`}
                     >
                       <span
                         className="w-3 h-3 rounded-sm border border-white/30 flex-shrink-0"
                         style={{ backgroundColor: entry.hex }}
                       />
-                      <span className="font-mono text-[10px]">{entry.hex}</span>
+                      <span className="font-bold text-white">{entry.code}</span>
+                      <span className="text-slate-300">{entry.name}</span>
                     </span>
                   ))}
                   <span className="text-[11px] text-slate-400 ml-auto">
@@ -850,23 +955,22 @@ export const ConfiguratorSection: React.FC<ConfiguratorSectionProps> = ({ onSele
                 </div>
               </div>
 
-              {/* Talón y puntera: forma y posición fijas, solo se elige el color de la paleta */}
+              {/* Talón y puntera: forma y posición fijas, solo se elige el color de la carta TecnoYarn */}
               <div className="p-3.5 bg-slate-50 rounded-2xl border border-slate-200/80 space-y-3">
                 <div className="flex items-start gap-2.5 text-xs text-slate-600">
                   <Lock className="w-4 h-4 text-petrol flex-shrink-0 mt-0.5" />
                   <p>
-                    <strong className="text-slate-800">Talón y puntera (forma y posición fijas):</strong> no se mueven ni llevan logo encima. Solo puedes cambiar su color de la paleta provisional.
+                    <strong className="text-slate-800">Talón y puntera (forma y posición fijas):</strong> no se mueven ni llevan logo encima. Elige su color en la carta TecnoYarn.
                   </p>
                 </div>
-                <SwatchPicker
-                  label="Color de talón y puntera"
+                <TecnoYarnPicker
+                  label="Color de talón y puntera (TecnoYarn)"
                   value={config.heelToeColor}
                   onChange={(hex) => {
                     setActivePresetId(null);
                     setConfig((prev) => ({ ...prev, heelToeColor: hex }));
                   }}
                   idPrefix="heeltoe"
-                  allowCustom={false}
                 />
               </div>
             </div>

@@ -1,6 +1,10 @@
 import { ExtendedSockConfig } from './pricing';
 import { NeedleCount } from '../types/sock';
-import { getYarnColorName } from '../data/yarnPalette';
+import {
+  findNearestTecnoYarnColor,
+  findNearestTecnoYarnByHex,
+  TecnoYarnColor,
+} from '../data/yarnPalette';
 
 export const MAX_MACHINE_INKS = 6;
 export const MIN_USER_INKS = 2;
@@ -11,11 +15,12 @@ export const LEG_BOTTOM_SAFE_MARGIN_RATIO = 0.14;
 
 export interface KnitPaletteEntry {
   index: number;
+  code: string; // Código oficial TecnoYarn (p. ej. "E33")
   r: number;
   g: number;
   b: number;
-  hex: string;
-  name: string;
+  hex: string; // Hex exacto de la carta TecnoYarn (usado en el BMP 8 bits)
+  name: string; // Nombre TecnoYarn (p. ej. "Rosso")
   pixelCount: number;
 }
 
@@ -654,15 +659,26 @@ export function buildKnitPixelGrid(
 
   const indices = new Uint8Array(width * height); // inicializado a 0 (color base de la caña)
 
-  // Paleta dinámica en construcción (máximo maxAllowedInks <= 6)
-  const paletteRgb: [number, number, number][] = [hexToRgb(config.legColor || '#FFFFFF')];
+  // Paleta dinámica en construcción: cada tinta se ajusta al color más cercano de la carta TecnoYarn (máx. 6)
+  const baseYarn = findNearestTecnoYarnByHex(config.legColor || '#FFFFFF');
+  const paletteEntries: TecnoYarnColor[] = [baseYarn];
+  const paletteRgb: [number, number, number][] = [[baseYarn.r, baseYarn.g, baseYarn.b]];
 
   const findOrAddColor = (rgb: [number, number, number], mergeThresholdSq = 900): number => {
-    // Buscar si ya existe un color igual o muy parecido
+    // Ajustar primero al color exacto más cercano de la carta real TecnoYarn
+    const snapped = findNearestTecnoYarnColor(rgb[0], rgb[1], rgb[2]);
+
+    // Si ese código TecnoYarn ya está en la paleta activa, reutilizar su índice
+    const exactIdx = paletteEntries.findIndex((entry) => entry.code === snapped.code);
+    if (exactIdx >= 0) {
+      return exactIdx;
+    }
+
+    // Buscar si ya existe un color muy cercano en la paleta activa
     let nearestIdx = 0;
     let nearestDist = Infinity;
     for (let i = 0; i < paletteRgb.length; i++) {
-      const d = colorDistSq(rgb[0], rgb[1], rgb[2], paletteRgb[i][0], paletteRgb[i][1], paletteRgb[i][2]);
+      const d = colorDistSq(snapped.r, snapped.g, snapped.b, paletteRgb[i][0], paletteRgb[i][1], paletteRgb[i][2]);
       if (d < nearestDist) {
         nearestDist = d;
         nearestIdx = i;
@@ -671,9 +687,10 @@ export function buildKnitPixelGrid(
     if (nearestDist <= mergeThresholdSq) {
       return nearestIdx;
     }
-    if (paletteRgb.length < maxAllowedInks) {
-      paletteRgb.push([Math.round(rgb[0]), Math.round(rgb[1]), Math.round(rgb[2])]);
-      return paletteRgb.length - 1;
+    if (paletteEntries.length < maxAllowedInks) {
+      paletteEntries.push(snapped);
+      paletteRgb.push([snapped.r, snapped.g, snapped.b]);
+      return paletteEntries.length - 1;
     }
     return nearestIdx;
   };
@@ -1103,20 +1120,20 @@ export function buildKnitPixelGrid(
   const remap = new Int32Array(paletteRgb.length).fill(-1);
   const compactPalette: KnitPaletteEntry[] = [];
 
-  for (let i = 0; i < paletteRgb.length; i++) {
+  for (let i = 0; i < paletteEntries.length; i++) {
     if (counts[i] === 0 && i !== 0) continue;
     if (compactPalette.length >= MAX_MACHINE_INKS) break;
     const newIdx = compactPalette.length;
     remap[i] = newIdx;
-    const [r, g, b] = paletteRgb[i];
-    const hex = rgbToHex(r, g, b);
+    const ty = paletteEntries[i];
     compactPalette.push({
       index: newIdx,
-      r,
-      g,
-      b,
-      hex,
-      name: getYarnColorName(hex),
+      code: ty.code,
+      r: ty.r,
+      g: ty.g,
+      b: ty.b,
+      hex: ty.hex,
+      name: ty.name,
       pixelCount: counts[i],
     });
   }

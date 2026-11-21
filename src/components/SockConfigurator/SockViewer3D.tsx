@@ -5,6 +5,7 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { Lock, RotateCw, Eye, Sparkles, AlertCircle, RefreshCw, ZoomIn, X } from 'lucide-react';
 import { ExtendedSockConfig } from '../../utils/pricing';
+import { DEFAULT_HEEL_TOE_COLOR } from '../../data/yarnPalette';
 import { buildKnitPixelGrid, KnitPixelGrid, MAX_MACHINE_INKS } from '../../utils/knitPixelEngine';
 import {
   renderGridToKnitCanvas,
@@ -435,7 +436,7 @@ export const SockViewer3D: React.FC<SockViewer3DProps> = ({
 
     // 0. Actualizar color de TALÓN Y PUNTERA (solo color; geometría, medida y posición 100% fijas)
     if (mats) {
-      const htColor = config.heelToeColor || '#2B3140';
+      const htColor = config.heelToeColor || DEFAULT_HEEL_TOE_COLOR;
       mats.heel.color.set(htColor);
       mats.toe.color.set(htColor);
     }
@@ -844,7 +845,7 @@ export const SockViewer3D: React.FC<SockViewer3DProps> = ({
     });
 
     const heelMat = new THREE.MeshStandardMaterial({
-      color: new THREE.Color(config.heelToeColor || '#2B3140'),
+      color: new THREE.Color(config.heelToeColor || DEFAULT_HEEL_TOE_COLOR),
       roughness: 0.94,
       metalness: 0,
       normalMap: normalMapFootHeelToe,
@@ -861,7 +862,7 @@ export const SockViewer3D: React.FC<SockViewer3DProps> = ({
     });
 
     const toeMat = new THREE.MeshStandardMaterial({
-      color: new THREE.Color(config.heelToeColor || '#2B3140'),
+      color: new THREE.Color(config.heelToeColor || DEFAULT_HEEL_TOE_COLOR),
       roughness: 0.94,
       metalness: 0,
       normalMap: normalMapFootHeelToe,

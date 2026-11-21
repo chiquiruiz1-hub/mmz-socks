@@ -1,6 +1,6 @@
 import { KnitPixelGrid, MAX_MACHINE_INKS } from './knitPixelEngine';
 import { renderGridToKnitCanvas } from './knitTextureRenderer';
-import { getYarnColorName } from '../data/yarnPalette';
+import { getTecnoYarnLabel } from '../data/yarnPalette';
 
 /**
  * Codifica una cuadrícula KnitPixelGrid en un archivo BMP estándar de 8 bits
@@ -160,10 +160,10 @@ export async function generateFactoryPreviewPng(
   }
   ctx.restore();
 
-  // Pie con paleta de tintas activas + color talón/puntera + aviso obligatorio
+  // Pie con paleta de tintas activas TecnoYarn + color talón/puntera + aviso obligatorio
   ctx.fillStyle = '#E2E8F0';
   ctx.font = 'bold 14px system-ui, -apple-system, sans-serif';
-  ctx.fillText('Tintas de la cuadrícula (BMP 8 bits):', 40, 628);
+  ctx.fillText('Tintas TecnoYarn de la cuadrícula (BMP 8 bits):', 40, 628);
 
   let sx = 40;
   for (const entry of grid.palette) {
@@ -173,16 +173,19 @@ export async function generateFactoryPreviewPng(
     ctx.lineWidth = 1;
     ctx.strokeRect(sx, 642, 22, 22);
 
-    ctx.fillStyle = '#CBD5E1';
-    ctx.font = '12px system-ui, -apple-system, sans-serif';
-    ctx.fillText(`#${entry.index} ${entry.hex}`, sx + 28, 658);
-    sx += 135;
+    ctx.fillStyle = '#FFFFFF';
+    ctx.font = 'bold 12px system-ui, -apple-system, sans-serif';
+    ctx.fillText(`${entry.code} ${entry.name}`, sx + 28, 653);
+    ctx.fillStyle = '#94A3B8';
+    ctx.font = '10px system-ui, -apple-system, sans-serif';
+    ctx.fillText(entry.hex, sx + 28, 666);
+    sx += 182;
   }
 
   ctx.fillStyle = '#94A3B8';
   ctx.font = '13px system-ui, -apple-system, sans-serif';
   ctx.fillText(
-    `Talón y puntera (forma y posición fijas): ${getYarnColorName(heelToeColor)} (${heelToeColor.toUpperCase()})`,
+    `Talón y puntera (forma y posición fijas): ${getTecnoYarnLabel(heelToeColor)} (${heelToeColor.toUpperCase()})`,
     40,
     696
   );
@@ -215,7 +218,7 @@ export async function downloadMachineDesignFiles(
   grid: KnitPixelGrid,
   heelToeColor: string,
   snapshotDataUrl?: string | null
-): Promise<{ bmpFilename: string; previewFilename: string }> {
+): Promise<{ bmpFilename: string; previewFilename: string; colorCodes: string[]; heelToeLabel: string }> {
   const bmpBytes = encodeKnitGridToBmp8Bit(grid);
   const bmpBlob = new Blob([bmpBytes.buffer as ArrayBuffer], { type: 'image/bmp' });
   const stamp = new Date().toISOString().slice(0, 10);
@@ -231,5 +234,10 @@ export async function downloadMachineDesignFiles(
     }, 280);
   }
 
-  return { bmpFilename, previewFilename };
+  return {
+    bmpFilename,
+    previewFilename,
+    colorCodes: grid.palette.map((p) => `${p.code} ${p.name}`),
+    heelToeLabel: getTecnoYarnLabel(heelToeColor),
+  };
 }
