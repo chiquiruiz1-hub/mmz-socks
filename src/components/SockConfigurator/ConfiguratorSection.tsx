@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Sparkles,
   Upload,
@@ -11,10 +11,23 @@ import {
   Layers,
   Grid,
   Type,
-  Download
+  Download,
+  Wand2,
+  Cpu,
+  ShieldCheck
 } from 'lucide-react';
 import { SockViewer3D } from './SockViewer3D';
-import { SockConfig } from '../../types/sock';
+import { SockConfig, NeedleCount } from '../../types/sock';
+import {
+  YARN_PALETTE,
+  DEFAULT_HEEL_TOE_COLOR,
+  getYarnColorName
+} from '../../data/yarnPalette';
+import {
+  KnitPixelGrid,
+  MAX_MACHINE_INKS
+} from '../../utils/knitPixelEngine';
+import { downloadMachineDesignFiles } from '../../utils/bmpExport';
 import {
   MATERIALS,
   calculatePricing,
@@ -35,20 +48,13 @@ import {
 // High resolution Sample logo SVG data URI (Integrated Jacquard design)
 const SAMPLE_CHURRERIA_LOGO = `data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 360" width="600" height="360"><text x="300" y="105" font-family="Arial, Helvetica, sans-serif" font-weight="900" font-size="58" fill="%23D32F2F" text-anchor="middle" letter-spacing="4">CHURRERÍA</text><text x="300" y="235" font-family="Arial, Helvetica, sans-serif" font-weight="900" font-size="115" fill="%23D32F2F" text-anchor="middle" letter-spacing="6">PEPE</text><text x="300" y="315" font-family="Arial, Helvetica, sans-serif" font-weight="800" font-size="32" fill="%23D32F2F" text-anchor="middle" letter-spacing="6">★ DESDE 1982 ★</text></svg>`;
 
-// Preset Color Palettes for Socks
-const YARN_PALETTE = [
-  { name: 'Blanco Puro', hex: '#FFFFFF' },
-  { name: 'Negro Carbón', hex: '#1E232A' },
-  { name: 'Azul Petróleo', hex: '#1F4D63' },
-  { name: 'Azul Noche', hex: '#173A4B' },
-  { name: 'Turquesa', hex: '#1B7A93' },
-  { name: 'Turquesa Claro', hex: '#2A9DB8' },
-  { name: 'Crudo Natural', hex: '#F4F1EA' },
-  { name: 'Mostaza Cálido', hex: '#F2C14E' },
-  { name: 'Coral Terracota', hex: '#E36F73' },
-  { name: 'Verde Bosque', hex: '#2D6A4F' },
-  { name: 'Burdeos Sierra', hex: '#782834' }
-];
+function sanitizeSvgMarkup(raw: string): string {
+  return raw
+    .replace(/<script[\s\S]*?>[\s\S]*?<\/script>/gi, '')
+    .replace(/<foreignObject[\s\S]*?>[\s\S]*?<\/foreignObject>/gi, '')
+    .replace(/\son[a-z]+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, '')
+    .replace(/javascript\s*:/gi, '');
+}
 
 type DesignPresetId = 'liso' | 'clasico' | 'deportivo' | 'corporativo';
 
@@ -61,26 +67,39 @@ interface SwatchPickerProps {
   value: string;
   onChange: (hex: string) => void;
   idPrefix: string;
+  allowCustom?: boolean;
 }
 
-const SwatchPicker: React.FC<SwatchPickerProps> = ({ label, value, onChange, idPrefix }) => {
+const SwatchPicker: React.FC<SwatchPickerProps> = ({
+  label,
+  value,
+  onChange,
+  idPrefix,
+  allowCustom = true
+}) => {
   return (
     <div className="space-y-2">
       <div className="flex items-center justify-between text-xs text-slate-600">
         <span className="font-semibold text-slate-700">{label}</span>
-        <label className="flex items-center gap-1.5 cursor-pointer text-[11px] text-slate-500">
-          <span>Personalizado:</span>
-          <input
-            type="color"
-            aria-label={label}
-            data-testid={`${idPrefix}-custom-color`}
-            value={value}
-            onChange={(e) => onChange(e.target.value)}
-            className="w-6 h-6 rounded cursor-pointer border border-slate-300 p-0"
-          />
-        </label>
+        {allowCustom ? (
+          <label className="flex items-center gap-1.5 cursor-pointer text-[11px] text-slate-500">
+            <span>Personalizado:</span>
+            <input
+              type="color"
+              aria-label={label}
+              data-testid={`${idPrefix}-custom-color`}
+              value={value}
+              onChange={(e) => onChange(e.target.value)}
+              className="w-6 h-6 rounded cursor-pointer border border-slate-300 p-0"
+            />
+          </label>
+        ) : (
+          <span className="text-[11px] font-semibold text-slate-500">
+            {getYarnColorName(value)}
+          </span>
+        )}
       </div>
-      <div className="grid grid-cols-6 sm:grid-cols-11 gap-1.5">
+      <div className="grid grid-cols-6 sm:grid-cols-12 gap-1.5">
         {YARN_PALETTE.map((c) => {
           const isSelected = value.trim().toLowerCase() === c.hex.toLowerCase();
           return (
@@ -123,15 +142,25 @@ export const ConfiguratorSection: React.FC<ConfiguratorSectionProps> = ({ onSele
   const captureSnapshotRef = useRef<(() => string | null) | null>(null);
   const [snapshotUrl, setSnapshotUrl] = useState<string>('');
   const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
+  const [isDownloadingBmp, setIsDownloadingBmp] = useState(false);
+  const [bmpNotice, setBmpNotice] = useState<string | null>(null);
+  const [knitGrid, setKnitGrid] = useState<KnitPixelGrid | null>(null);
   const [isInViewport, setIsInViewport] = useState(false);
   const [activePresetId, setActivePresetId] = useState<DesignPresetId | null>('liso');
 
-  // Initial state: LISO blanco (#FFFFFF) en puño, caña y pie; talón y puntera fijos #2B3140; sin logo ni motivo
+  const handleGridReady = useCallback((grid: KnitPixelGrid) => {
+    setKnitGrid(grid);
+  }, []);
+
+  // Initial state: LISO blanco (#FFFFFF) en puño, caña y pie; talón y puntera editables solo en color; 168 agujas por defecto
   const [config, setConfig] = useState<ExtendedSockConfig>({
     cuffColor: '#FFFFFF',
     legColor: '#FFFFFF',
     footColor: '#FFFFFF',
-    heelToeColor: '#2B3140',
+    heelToeColor: DEFAULT_HEEL_TOE_COLOR,
+    needleCount: 168,
+    maxColors: 6,
+    cleanEdges: true,
     customCuff: false,
     customFoot: false,
     pattern: {
@@ -363,14 +392,17 @@ export const ConfiguratorSection: React.FC<ConfiguratorSectionProps> = ({ onSele
     }));
   };
 
-  // Logo Upload (Client-side FileReader with strict MIME and size validation)
+  // Logo Upload (100% local en navegador, con validación estricta de MIME, tamaño y saneado SVG)
   const handleLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
     const allowedTypes = ['image/png', 'image/jpeg', 'image/webp', 'image/svg+xml'];
-    if (!allowedTypes.includes(file.type)) {
-      alert('Por favor selecciona una imagen válida en formato PNG, JPG, SVG o WebP.');
+    const lowerName = file.name.toLowerCase();
+    const isSvg = file.type === 'image/svg+xml' || lowerName.endsWith('.svg');
+
+    if (!allowedTypes.includes(file.type) && !isSvg) {
+      alert('Por favor selecciona una imagen válida en formato PNG, JPG o SVG.');
       return;
     }
     if (file.size > 8 * 1024 * 1024) {
@@ -378,15 +410,32 @@ export const ConfiguratorSection: React.FC<ConfiguratorSectionProps> = ({ onSele
       return;
     }
 
+    if (isSvg) {
+      const textReader = new FileReader();
+      textReader.onload = (event) => {
+        if (typeof event.target?.result === 'string') {
+          const cleanSvg = sanitizeSvgMarkup(event.target.result);
+          const svgDataUrl = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(cleanSvg)}`;
+          setActivePresetId(null);
+          setConfig((prev) => ({
+            ...prev,
+            logo: {
+              ...prev.logo,
+              allOver: false,
+              url: svgDataUrl
+            }
+          }));
+        }
+      };
+      textReader.readAsText(file);
+      return;
+    }
+
     const reader = new FileReader();
     reader.onload = async (event) => {
       if (typeof event.target?.result === 'string') {
         const rawDataUrl = event.target.result;
-        // Reducir el logo si es muy grande antes de guardarlo en el estado y meterlo en el 3D / PDF
-        const reduced =
-          file.type === 'image/svg+xml'
-            ? null
-            : await downscaleImageDataUrl(rawDataUrl, 600, 600);
+        const reduced = await downscaleImageDataUrl(rawDataUrl, 800, 800);
         const finalUrl = reduced ? reduced.dataUrl : rawDataUrl;
 
         setActivePresetId(null);
@@ -479,10 +528,35 @@ export const ConfiguratorSection: React.FC<ConfiguratorSectionProps> = ({ onSele
     }
   };
 
+  const handleDownloadMachineDesign = async () => {
+    if (isDownloadingBmp || !knitGrid) return;
+    setIsDownloadingBmp(true);
+    setBmpNotice(null);
+    try {
+      const liveSnap = captureSnapshotRef.current?.() || snapshotUrl;
+      if (liveSnap) setSnapshotUrl(liveSnap);
+      const { bmpFilename } = await downloadMachineDesignFiles(
+        knitGrid,
+        config.heelToeColor,
+        liveSnap
+      );
+      setBmpNotice(`Descargado ${bmpFilename} (8 bits, ${knitGrid.width}×${knitGrid.height} px) y vista previa PNG.`);
+    } catch (err) {
+      console.error('Error al generar el diseño BMP:', err);
+      setBmpNotice('No se pudo generar el archivo. Inténtalo de nuevo.');
+    } finally {
+      setIsDownloadingBmp(false);
+    }
+  };
+
   const pat = config.pattern!;
   const logoBg = config.logoBg!;
   const logoPos = config.logoPosition || 'front';
   const knittedText = config.knittedText!;
+  const activeNeedles: NeedleCount = config.needleCount === 200 ? 200 : 168;
+  const maxColorsSetting = Math.max(2, Math.min(MAX_MACHINE_INKS, config.maxColors ?? 6));
+  const cleanEdgesEnabled = config.cleanEdges ?? true;
+  const activeInksCount = knitGrid ? knitGrid.totalInks : 1;
 
   return (
     <section
@@ -509,12 +583,13 @@ export const ConfiguratorSection: React.FC<ConfiguratorSectionProps> = ({ onSele
         <div className="grid lg:grid-cols-12 gap-8 lg:gap-10 items-start">
 
           {/* 3D Visualizer Column (Sticky on desktop, top on mobile) */}
-          <div className="lg:col-span-6 xl:col-span-7 lg:sticky lg:top-24 space-y-4">
+          <div className="lg:col-span-6 xl:col-span-7 min-w-0 lg:sticky lg:top-24 space-y-4">
             <SockViewer3D
               config={config}
               onSnapshotReady={(data) => setSnapshotUrl(data)}
               captureSnapshotRef={captureSnapshotRef}
               onUseSampleLogo={setSampleLogo}
+              onGridReady={handleGridReady}
             />
 
             {/* Quick summary strip below 3D */}
@@ -540,10 +615,90 @@ export const ConfiguratorSection: React.FC<ConfiguratorSectionProps> = ({ onSele
                 )}
               </div>
             </div>
+
+            {/* Machine Pixel Grid & Factory Download Card */}
+            <div className="p-4 sm:p-5 bg-[#0A1A23] text-white rounded-2xl border border-slate-800 shadow-soft space-y-3.5">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <Cpu className="w-4 h-4 text-yarn-mustard" />
+                  <span className="text-xs sm:text-sm font-bold tracking-tight">
+                    Dibujo real de máquina · {activeNeedles} agujas
+                  </span>
+                  {activeNeedles === 200 && (
+                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-400/20 text-amber-200 font-semibold border border-amber-400/30">
+                      Provisional
+                    </span>
+                  )}
+                </div>
+
+                <div
+                  data-testid="machine-inks-badge"
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-white/10 border border-white/15 text-xs font-bold"
+                >
+                  <span className="text-yarn-mustard">{activeInksCount}</span>
+                  <span className="text-slate-300">/ {MAX_MACHINE_INKS} tintas máx.</span>
+                </div>
+              </div>
+
+              {/* Active palette swatches from KnitPixelGrid */}
+              {knitGrid && knitGrid.palette.length > 0 && (
+                <div className="flex flex-wrap items-center gap-1.5" data-testid="machine-inks-swatches">
+                  {knitGrid.palette.map((entry) => (
+                    <span
+                      key={`ink-${entry.index}-${entry.hex}`}
+                      className="inline-flex items-center gap-1.5 px-2 py-1 rounded-lg bg-white/10 border border-white/10 text-[11px] text-slate-200"
+                      title={`${entry.name} (${entry.hex})`}
+                    >
+                      <span
+                        className="w-3 h-3 rounded-sm border border-white/30 flex-shrink-0"
+                        style={{ backgroundColor: entry.hex }}
+                      />
+                      <span className="font-mono text-[10px]">{entry.hex}</span>
+                    </span>
+                  ))}
+                  <span className="text-[11px] text-slate-400 ml-auto">
+                    {knitGrid.width} × {knitGrid.height} px (1 px = 1 aguja)
+                  </span>
+                </div>
+              )}
+
+              <div className="flex flex-col sm:flex-row sm:items-center gap-2.5 pt-1">
+                <button
+                  type="button"
+                  data-testid="btn-download-bmp"
+                  onClick={handleDownloadMachineDesign}
+                  disabled={isDownloadingBmp || !knitGrid}
+                  className="flex-1 inline-flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-yarn-mustard hover:bg-white text-petrol-dark font-extrabold text-xs sm:text-sm transition-colors shadow-md disabled:opacity-50"
+                >
+                  <Download className="w-4 h-4" />
+                  <span>
+                    {isDownloadingBmp
+                      ? 'Generando BMP 8 bits...'
+                      : 'Descargar diseño para la máquina'}
+                  </span>
+                </button>
+              </div>
+
+              {bmpNotice && (
+                <p className="text-[11px] text-emerald-300 font-medium" data-testid="bmp-download-notice">
+                  {bmpNotice}
+                </p>
+              )}
+
+              <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-slate-300 pt-0.5">
+                <span className="inline-flex items-center gap-1.5">
+                  <ShieldCheck className="w-3.5 h-3.5 text-yarn-mustard flex-shrink-0" />
+                  <strong>La fábrica revisa el diseño antes de tejerlo.</strong>
+                </span>
+                <span className="text-slate-400">
+                  BMP 8 bits + vista previa · 100% en tu navegador
+                </span>
+              </div>
+            </div>
           </div>
 
           {/* Controls Panel Column */}
-          <div className="lg:col-span-6 xl:col-span-5 space-y-5">
+          <div className="lg:col-span-6 xl:col-span-5 min-w-0 space-y-5">
 
             {/* PRESETS BAR AT TOP OF PANEL */}
             <div className="bg-ice/90 p-4 sm:p-5 rounded-3xl border border-slate-200/90 space-y-3">
@@ -672,12 +827,24 @@ export const ConfiguratorSection: React.FC<ConfiguratorSectionProps> = ({ onSele
                 </div>
               </div>
 
-              {/* Locked Zone Notice */}
-              <div className="p-3 bg-slate-50 rounded-xl border border-slate-200/80 flex items-start gap-2.5 text-xs text-slate-600">
-                <Lock className="w-4 h-4 text-slate-700 flex-shrink-0 mt-0.5" />
-                <p>
-                  <strong>Refuerzo técnico fijo:</strong> talón y puntera siempre en gris pizarra (#2B3140) incluido sin coste extra de color.
-                </p>
+              {/* Talón y puntera: forma y posición fijas, solo se elige el color de la paleta */}
+              <div className="p-3.5 bg-slate-50 rounded-2xl border border-slate-200/80 space-y-3">
+                <div className="flex items-start gap-2.5 text-xs text-slate-600">
+                  <Lock className="w-4 h-4 text-petrol flex-shrink-0 mt-0.5" />
+                  <p>
+                    <strong className="text-slate-800">Talón y puntera (forma y posición fijas):</strong> no se mueven ni llevan logo encima. Solo puedes cambiar su color de la paleta provisional.
+                  </p>
+                </div>
+                <SwatchPicker
+                  label="Color de talón y puntera"
+                  value={config.heelToeColor}
+                  onChange={(hex) => {
+                    setActivePresetId(null);
+                    setConfig((prev) => ({ ...prev, heelToeColor: hex }));
+                  }}
+                  idPrefix="heeltoe"
+                  allowCustom={false}
+                />
               </div>
             </div>
 
@@ -910,6 +1077,7 @@ export const ConfiguratorSection: React.FC<ConfiguratorSectionProps> = ({ onSele
                   <span>Subir tu logo</span>
                   <input
                     type="file"
+                    data-testid="input-logo-upload"
                     accept=".png,.jpg,.jpeg,.svg,.webp"
                     onChange={handleLogoUpload}
                     className="hidden"
@@ -954,6 +1122,110 @@ export const ConfiguratorSection: React.FC<ConfiguratorSectionProps> = ({ onSele
                   <RotateCcw className="w-3.5 h-3.5" />
                   <span>Sin logo</span>
                 </button>
+              </div>
+
+              {/* Controles de máquina: 168 / 200 agujas, máximo colores (2..6) y Limpiar bordes */}
+              <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200/80 space-y-3.5 text-xs">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="font-bold text-slate-800 flex items-center gap-1.5">
+                    <Cpu className="w-3.5 h-3.5 text-turquoise" />
+                    <span>Conversión a píxeles de máquina</span>
+                  </span>
+                  <span
+                    data-testid="panel-inks-count"
+                    className="px-2 py-0.5 rounded-full bg-petrol text-white text-[11px] font-bold"
+                  >
+                    {activeInksCount} / {MAX_MACHINE_INKS} tintas
+                  </span>
+                </div>
+
+                {/* Selector de agujas: 168 (por defecto) / 200 (provisional) */}
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between text-slate-600">
+                    <span className="font-semibold">Ancho del dibujo (1 píxel = 1 aguja):</span>
+                    <span className="text-[10px] text-slate-500">200: provisional</span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    {([168, 200] as NeedleCount[]).map((needles) => {
+                      const active = activeNeedles === needles;
+                      return (
+                        <button
+                          key={needles}
+                          type="button"
+                          data-testid={`needles-${needles}`}
+                          onClick={() =>
+                            setConfig((prev) => ({ ...prev, needleCount: needles }))
+                          }
+                          className={`py-2 px-3 rounded-xl font-bold border transition-all text-center ${
+                            active
+                              ? 'bg-petrol text-white border-petrol shadow-xs'
+                              : 'bg-white text-slate-700 border-slate-200 hover:border-turquoise'
+                          }`}
+                        >
+                          {needles} agujas {needles === 168 ? '(estándar)' : '(provisional)'}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Número máximo de colores (2 a 6) */}
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between text-slate-600">
+                    <span className="font-semibold">Máximo de colores del diseño (2 a 6):</span>
+                    <span className="font-bold text-petrol">{maxColorsSetting} tintas</span>
+                  </div>
+                  <div className="grid grid-cols-5 gap-1.5">
+                    {[2, 3, 4, 5, 6].map((n) => (
+                      <button
+                        key={n}
+                        type="button"
+                        data-testid={`max-colors-${n}`}
+                        onClick={() =>
+                          setConfig((prev) => ({ ...prev, maxColors: n }))
+                        }
+                        className={`py-1.5 rounded-xl font-bold border transition-all ${
+                          maxColorsSetting === n
+                            ? 'bg-turquoise text-white border-turquoise'
+                            : 'bg-white text-slate-700 border-slate-200 hover:border-turquoise'
+                        }`}
+                      >
+                        {n}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Botón Limpiar bordes */}
+                <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
+                  <button
+                    type="button"
+                    data-testid="btn-clean-edges"
+                    onClick={() =>
+                      setConfig((prev) => ({
+                        ...prev,
+                        cleanEdges: !(prev.cleanEdges ?? true)
+                      }))
+                    }
+                    className={`inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl font-bold border transition-all ${
+                      cleanEdgesEnabled
+                        ? 'bg-emerald-600 text-white border-emerald-600 shadow-xs'
+                        : 'bg-white text-slate-700 border-slate-300 hover:border-turquoise'
+                    }`}
+                  >
+                    <Wand2 className="w-3.5 h-3.5" />
+                    <span>
+                      {cleanEdgesEnabled ? 'Limpiar bordes: Activado' : 'Limpiar bordes'}
+                    </span>
+                  </button>
+                  <span className="text-[11px] text-slate-500">
+                    Quita píxeles sueltos y halos
+                  </span>
+                </div>
+
+                <p className="text-[11px] text-slate-500 leading-snug">
+                  El cálculo se hace 100% en tu navegador (tu logo no se sube a ningún servidor). El dibujo queda siempre en la caña con margen de seguridad respecto al puño, talón y puntera.
+                </p>
               </div>
 
               {/* Active Logo Settings */}

@@ -8,11 +8,16 @@ export interface MaterialOption {
   composition: string;
 }
 
+export type NeedleCount = 168 | 200;
+
 export interface SockConfig {
   cuffColor: string;
   legColor: string;
   footColor: string;
-  heelToeColor: string; // Fixed slate grey #2B3140
+  heelToeColor: string; // Color selectable from yarn palette; geometry/shape/position are fixed
+  needleCount?: NeedleCount; // 168 by default; 200 provisional
+  maxColors?: number; // 2..6 max inks allowed in the design grid
+  cleanEdges?: boolean; // Despeckle & fringe cleanup on logo pixels
   logo: {
     url: string | null;
     scale: number; // 0.4 to 1.4
