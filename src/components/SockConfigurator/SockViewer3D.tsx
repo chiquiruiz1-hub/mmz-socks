@@ -23,9 +23,9 @@ interface SockViewer3DProps {
   resetViewSignal?: number;
 }
 
-// Target center point of the sock & podium assembly (entero con margen libre arriba y abajo en 360-430px y escritorio)
-const TARGET = new THREE.Vector3(0, 0.58, 0);
-const CAMERA_DISTANCE = 3.72;
+// Target center point of the sock & podium assembly (entero y ~24% más grande con margen libre arriba y abajo en 360-430px y escritorio)
+const TARGET = new THREE.Vector3(0, 0.59, 0);
+const CAMERA_DISTANCE = 3.02;
 const CAMERA_FOV = 23;
 const ELEVATION_ANGLE = 0.23; // ~13.2° sobre la horizontal (polar ~76.8°, dentro de 60°-100°)
 
@@ -825,8 +825,8 @@ export const SockViewer3D: React.FC<SockViewer3DProps> = ({
     controlsRef.current = controls;
     controls.target.copy(TARGET);
     controls.enableZoom = true;
-    controls.minDistance = 2.15;
-    controls.maxDistance = 4.4;
+    controls.minDistance = 1.95;
+    controls.maxDistance = 4.2;
     controls.enablePan = false;
     controls.enableDamping = true;
     controls.dampingFactor = 0.08;
