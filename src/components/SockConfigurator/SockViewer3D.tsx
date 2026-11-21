@@ -3,10 +3,10 @@ import * as THREE from 'three';
 import { createPortal } from 'react-dom';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
-import { Lock, RotateCw, Eye, Sparkles, AlertCircle, RefreshCw, ZoomIn, X } from 'lucide-react';
+import { RotateCw, Eye, Sparkles, AlertCircle, RefreshCw, ZoomIn, X } from 'lucide-react';
 import { ExtendedSockConfig } from '../../utils/pricing';
 import { DEFAULT_HEEL_TOE_COLOR } from '../../data/yarnPalette';
-import { buildKnitPixelGrid, KnitPixelGrid, MAX_MACHINE_INKS } from '../../utils/knitPixelEngine';
+import { buildKnitPixelGrid, KnitPixelGrid } from '../../utils/knitPixelEngine';
 import {
   renderGridToKnitCanvas,
   renderKnitMacroRegion,
@@ -245,21 +245,20 @@ const KnitLupa: React.FC<KnitLupaProps> = ({ grid, config, onClose, onUseSampleL
         <div>
           <p className="text-sm sm:text-base font-bold text-white flex items-center gap-2">
             <ZoomIn className="w-4 h-4 text-yarn-mustard" />
-            <span>Lupa de punto tejido</span>
+            <span>Ver el tejido de cerca</span>
           </p>
           <p className="text-[11px] sm:text-xs text-slate-300">
-            {grid ? `${grid.width} agujas · ${grid.totalInks} de ${MAX_MACHINE_INKS} tintas · ` : ''}
-            Pasa el dedo o el ratón por encima para ver cada puntada en V con nitidez.
+            Pasa el dedo o el ratón por encima para ver cada puntada del calcetín con claridad.
           </p>
         </div>
         <button
           type="button"
           data-testid="btn-close-lupa"
           onClick={onClose}
-          className="flex items-center gap-1 px-3 py-1.5 text-xs font-bold rounded-xl bg-white/15 hover:bg-white/25 text-white border border-white/15 transition-colors"
+          className="flex items-center gap-1 px-4 min-h-[44px] text-xs font-bold rounded-xl bg-white/15 hover:bg-white/25 text-white border border-white/15 transition-colors"
           aria-label="Cerrar la lupa"
         >
-          <X className="w-3.5 h-3.5" />
+          <X className="w-4 h-4" />
           Cerrar
         </button>
       </div>
@@ -272,7 +271,7 @@ const KnitLupa: React.FC<KnitLupaProps> = ({ grid, config, onClose, onUseSampleL
             type="button"
             data-testid={`lupa-zoom-${z}`}
             onClick={() => setZoom(z)}
-            className={`px-3 py-1.5 rounded-lg font-bold border transition-all ${
+            className={`px-3.5 min-h-[44px] rounded-xl font-bold border transition-all ${
               zoom === z
                 ? 'bg-yarn-mustard text-petrol-dark border-yarn-mustard'
                 : 'bg-white/10 text-white border-white/15 hover:bg-white/20'
@@ -285,19 +284,19 @@ const KnitLupa: React.FC<KnitLupaProps> = ({ grid, config, onClose, onUseSampleL
           type="button"
           data-testid="lupa-toggle-grid"
           onClick={() => setShowGrid((g) => !g)}
-          className={`px-3 py-1.5 rounded-lg font-bold border transition-all ${
+          className={`px-3.5 min-h-[44px] rounded-xl font-bold border transition-all ${
             showGrid
               ? 'bg-turquoise text-white border-turquoise'
               : 'bg-white/10 text-white border-white/15 hover:bg-white/20'
           }`}
         >
-          Guía agujas
+          Guía de puntos
         </button>
         {backAvailable && (
           <button
             type="button"
             onClick={() => setSide((sd) => (sd === 'front' ? 'back' : 'front'))}
-            className="px-3 py-1.5 rounded-lg font-bold border bg-white/10 text-white border-white/15 hover:bg-white/20"
+            className="px-3.5 min-h-[44px] rounded-xl font-bold border bg-white/10 text-white border-white/15 hover:bg-white/20"
           >
             {side === 'front' ? 'Ver detrás' : 'Ver delante'}
           </button>
@@ -354,7 +353,7 @@ const KnitLupa: React.FC<KnitLupaProps> = ({ grid, config, onClose, onUseSampleL
       </div>
 
       <p className="mx-auto max-w-[480px] text-[11px] leading-relaxed text-slate-400 text-center">
-        Cada píxel de la máquina (1 aguja) se teje como una puntada en forma de V. El diseño nunca supera las {MAX_MACHINE_INKS} tintas y respeta las zonas fijas de puño, talón y puntera.
+        Así queda tu dibujo tejido punto a punto sobre el calcetín, respetando el puño, el talón y la puntera.
       </p>
     </div>,
     document.body
@@ -427,6 +426,7 @@ export const SockViewer3D: React.FC<SockViewer3DProps> = ({
         needleCount: config.needleCount ?? 168,
         maxColors: config.maxColors ?? 6,
         cleanEdges: config.cleanEdges ?? true,
+        logoColorOverrides: config.logoColorOverrides,
         pattern: config.pattern,
         logo: config.logo,
         logoBg: config.logoBg,
@@ -441,6 +441,7 @@ export const SockViewer3D: React.FC<SockViewer3DProps> = ({
       config.needleCount,
       config.maxColors,
       config.cleanEdges,
+      config.logoColorOverrides,
       config.pattern,
       config.logo,
       config.logoBg,
@@ -1270,7 +1271,7 @@ export const SockViewer3D: React.FC<SockViewer3DProps> = ({
   };
 
   return (
-    <div className="relative w-full h-[330px] sm:h-[420px] md:h-[480px] rounded-3xl overflow-hidden bg-[#0A1A23] border border-slate-800 shadow-float select-none flex flex-col justify-between">
+    <div className="relative w-full h-[360px] sm:h-[440px] md:h-[500px] rounded-3xl overflow-hidden bg-[#0A1A23] border border-slate-800 shadow-float select-none flex flex-col justify-between">
       {/* Top Overlay: View Presets, Lupa & Auto Rotate */}
       <div className="absolute top-3 sm:top-4 left-3 sm:left-4 right-3 sm:right-4 z-20 flex items-center justify-between pointer-events-none gap-2">
         {/* Camera Preset Buttons */}
@@ -1280,7 +1281,7 @@ export const SockViewer3D: React.FC<SockViewer3DProps> = ({
               key={key}
               type="button"
               onClick={() => setCameraPreset(key)}
-              className={`px-2.5 sm:px-3 py-1 sm:py-1.5 text-xs font-bold rounded-xl transition-all capitalize ${
+              className={`px-3 min-h-[40px] sm:min-h-[36px] text-xs font-bold rounded-xl transition-all capitalize ${
                 activePreset === key && !autoRotate
                   ? 'bg-yarn-mustard text-petrol-dark shadow-xs'
                   : 'text-white/85 hover:bg-white/10'
@@ -1296,10 +1297,10 @@ export const SockViewer3D: React.FC<SockViewer3DProps> = ({
             type="button"
             data-testid="btn-open-lupa"
             onClick={() => setLupaOpen(true)}
-            className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1 sm:py-1.5 text-xs font-bold rounded-2xl backdrop-blur-md transition-all shadow-sm border bg-white/15 text-white border-white/20 hover:bg-white/25"
+            className="flex items-center gap-1.5 px-3.5 min-h-[44px] sm:min-h-[40px] text-xs font-bold rounded-2xl backdrop-blur-md transition-all shadow-sm border bg-white/15 text-white border-white/20 hover:bg-white/25"
             aria-label="Abrir la lupa para ver el tejido de cerca"
           >
-            <ZoomIn className="w-3.5 h-3.5 text-yarn-mustard" />
+            <ZoomIn className="w-4 h-4 text-yarn-mustard" />
             <span>Lupa</span>
           </button>
 
@@ -1311,15 +1312,15 @@ export const SockViewer3D: React.FC<SockViewer3DProps> = ({
               setAutoRotate(!autoRotate);
               if (!autoRotate) setActivePreset(null);
             }}
-            className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1 sm:py-1.5 text-xs font-bold rounded-2xl backdrop-blur-md transition-all shadow-sm border ${
+            className={`flex items-center gap-1.5 px-3 min-h-[44px] sm:min-h-[40px] text-xs font-bold rounded-2xl backdrop-blur-md transition-all shadow-sm border ${
               autoRotate
                 ? 'bg-turquoise text-white border-turquoise shadow-glow'
                 : 'bg-white/10 text-white/90 border-white/15 hover:bg-white/20'
             }`}
             aria-label={autoRotate ? 'Pausar giro continuo' : 'Activar giro continuo'}
           >
-            <RotateCw className={`w-3.5 h-3.5 ${autoRotate ? 'animate-spin' : ''}`} />
-            <span className="hidden xs:inline">Girar solo</span>
+            <RotateCw className={`w-4 h-4 ${autoRotate ? 'animate-spin' : ''}`} />
+            <span className="hidden sm:inline">Girar</span>
           </button>
         </div>
       </div>
@@ -1367,18 +1368,21 @@ export const SockViewer3D: React.FC<SockViewer3DProps> = ({
         />
       )}
 
-      {/* Bottom Overlay: Locked Zone Notice & Drag hint */}
-      <div className="absolute bottom-3 sm:bottom-4 left-3 sm:left-4 right-3 sm:right-4 z-20 flex flex-col sm:flex-row items-center justify-between gap-2 pointer-events-none">
-        <div className="inline-flex items-center gap-1.5 px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-full bg-white/10 backdrop-blur-md text-white text-[11px] sm:text-xs font-medium shadow-md border border-white/15 pointer-events-auto">
-          <Lock className="w-3.5 h-3.5 text-yarn-mustard flex-shrink-0" />
-          <span>
-            <strong className="text-white">Zona fija:</strong> talón y puntera (solo cambia el color)
-          </span>
-        </div>
+      {/* Bottom Overlay: Reset Front View Button & Drag hint */}
+      <div className="absolute bottom-3 sm:bottom-4 left-3 sm:left-4 right-3 sm:right-4 z-20 flex items-center justify-between gap-2 pointer-events-none">
+        <button
+          type="button"
+          data-testid="btn-reset-front"
+          onClick={() => setCameraPreset('frente')}
+          className="inline-flex items-center gap-2 px-4 min-h-[44px] rounded-2xl bg-white/15 hover:bg-white/25 backdrop-blur-md text-white text-xs font-bold shadow-md border border-white/20 pointer-events-auto transition-colors"
+        >
+          <RefreshCw className="w-3.5 h-3.5 text-yarn-mustard flex-shrink-0" />
+          <span>Volver a verlo de frente</span>
+        </button>
 
-        <div className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-white/10 backdrop-blur-md text-slate-200 text-[11px] font-medium border border-white/15">
+        <div className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white/10 backdrop-blur-md text-slate-200 text-[11px] font-medium border border-white/15">
           <Eye className="w-3.5 h-3.5 text-yarn-mustard" />
-          <span>Arrastra para rotar</span>
+          <span>Arrastra para girar</span>
         </div>
       </div>
     </div>

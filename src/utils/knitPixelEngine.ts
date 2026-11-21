@@ -32,6 +32,13 @@ export interface SmallDetailWarning {
   tinyComponentCount: number;
 }
 
+export interface LogoColorPart {
+  sourceCode: string; // Código TecnoYarn original detectado en esa parte del logo
+  currentCode: string; // Código TecnoYarn actual (tras cambio de color del cliente)
+  name: string;
+  hex: string;
+}
+
 export interface KnitPixelGrid {
   width: NeedleCount; // 168 o 200 agujas (1 píxel = 1 aguja)
   height: number; // pasadas en la caña
@@ -51,6 +58,8 @@ export interface KnitPixelGrid {
   } | null;
   hasLogo: boolean;
   smallDetailWarning: SmallDetailWarning;
+  logoParts: LogoColorPart[]; // Partes de color editables del logo
+  colorsReducedByLimit: boolean; // True si el logo tenía más colores que el límite de 6
 }
 
 export function hexToRgb(hex: string): [number, number, number] {
@@ -410,11 +419,11 @@ function analyzeSmallLogoDetails(
   };
   if (cols <= 0 || rows <= 0) return empty;
 
-  const zoneNameForRow = (r: number): 'zona superior' | 'zona central' | 'zona inferior' => {
+  const zoneNameForRow = (r: number): 'parte superior' | 'parte central' | 'parte inferior' => {
     const frac = (r + 0.5) / rows;
-    if (frac < 0.34) return 'zona superior';
-    if (frac > 0.66) return 'zona inferior';
-    return 'zona central';
+    if (frac < 0.34) return 'parte superior';
+    if (frac > 0.66) return 'parte inferior';
+    return 'parte central';
   };
 
   const zoneReasons = new Map<string, Set<string>>();
@@ -477,7 +486,7 @@ function analyzeSmallLogoDetails(
         const lossRatio = (bandSrcPx - bandSurvPx) / bandSrcPx;
         if (bandH <= 6 && lossRatio >= 0.35) {
           const z = zoneNameForRow((srcBandStart + srcBandEnd) / 2);
-          addZoneReason(z, `texto o detalle muy pequeño (${bandH} agujas de alto)`);
+          addZoneReason(z, 'texto o detalle muy pequeño');
         } else if (lossRatio >= 0.65) {
           const z = zoneNameForRow((srcBandStart + srcBandEnd) / 2);
           addZoneReason(z, 'detalles que se pierden al tejer');
@@ -519,7 +528,7 @@ function analyzeSmallLogoDetails(
       for (let br = bandStart; br <= bandEnd; br++) bandPx += rowOpaqueCounts[br];
       if (bandH <= 6 && bandPx >= 6) {
         const z = zoneNameForRow((bandStart + bandEnd) / 2);
-        addZoneReason(z, `texto o franja de solo ${bandH} agujas de alto`);
+        addZoneReason(z, 'letras o líneas muy bajas');
       }
       bandStart = -1;
     }
@@ -595,13 +604,13 @@ function analyzeSmallLogoDetails(
   if (tinyComponentCount >= 6) {
     for (const [z, cnt] of tinyZoneCounts.entries()) {
       if (cnt >= 3) {
-        addZoneReason(z, 'trazos sueltos de 1 píxel');
+        addZoneReason(z, 'trazos sueltos muy finos');
       }
     }
   }
 
   if (thinPixelRatio >= 0.34 || (droppedRatio >= 0.14 && totalRawOpaque - totalOpaque >= 14)) {
-    let topZone = 'zona central';
+    let topZone = 'parte central';
     let topCnt = -1;
     for (const [z, cnt] of thinZoneCounts.entries()) {
       if (cnt > topCnt) {
@@ -612,10 +621,10 @@ function analyzeSmallLogoDetails(
     addZoneReason(topZone, 'trazos demasiado finos');
   }
 
-  const orderedZones: ('zona superior' | 'zona central' | 'zona inferior')[] = [
-    'zona superior',
-    'zona central',
-    'zona inferior',
+  const orderedZones: ('parte superior' | 'parte central' | 'parte inferior')[] = [
+    'parte superior',
+    'parte central',
+    'parte inferior',
   ];
   const affectedZones: string[] = [];
   for (const z of orderedZones) {
@@ -904,6 +913,8 @@ export function buildKnitPixelGrid(
 
   // 3) Procesar logo del cliente (cuantización estricta <= maxAllowedInks y limpieza de bordes)
   let logoRect: KnitPixelGrid['logoRect'] = null;
+  const logoParts: LogoColorPart[] = [];
+  let colorsReducedByLimit = false;
   let smallDetailWarning: SmallDetailWarning = {
     hasWarning: false,
     needles: width,
@@ -953,22 +964,41 @@ export function buildKnitPixelGrid(
       if (resized) {
         const alphaThreshold = cleanEdges ? 165 : 115;
         const availableSlots = Math.max(1, maxAllowedInks - paletteRgb.length);
+        // Comprobar si el logo original tiene más colores diferenciados que el límite permitido
+        const probeColors = quantizeLogoColors(resized, maxAllowedInks + 2, alphaThreshold);
+        if (probeColors.length > availableSlots + 1) {
+          colorsReducedByLimit = true;
+        }
         // Cuantizamos hasta `maxAllowedInks` candidatos (si alguno coincide con la paleta ya existente, se reutiliza)
         const quantizedColors = quantizeLogoColors(resized, Math.min(maxAllowedInks, availableSlots + 1), alphaThreshold);
+        const overrides = config.logoColorOverrides || {};
 
-        // Registrar colores del logo en la paleta sin superar nunca maxAllowedInks (<= 6)
-        const paletteIdsForLogo: number[] = [];
+        // Para cada color cuantizado del logo, guardamos su código TecnoYarn original y aplicamos el cambio elegido por el cliente
+        const centroidToPaletteIdx: number[] = [];
+        const seenSourceCodes = new Set<string>();
+
         for (const rgb of quantizedColors) {
-          const pIdx = findOrAddColor(rgb, 650);
-          if (!paletteIdsForLogo.includes(pIdx)) {
-            paletteIdsForLogo.push(pIdx);
+          const origTy = findNearestTecnoYarnColor(rgb[0], rgb[1], rgb[2]);
+          const overrideHex = overrides[origTy.code];
+          const finalTy = overrideHex ? findNearestTecnoYarnByHex(overrideHex) : origTy;
+          const pIdx = findOrAddColor([finalTy.r, finalTy.g, finalTy.b], 650);
+          centroidToPaletteIdx.push(pIdx);
+
+          if (!seenSourceCodes.has(origTy.code)) {
+            seenSourceCodes.add(origTy.code);
+            const activeEntry = paletteEntries[pIdx] || finalTy;
+            logoParts.push({
+              sourceCode: origTy.code,
+              currentCode: activeEntry.code,
+              name: activeEntry.name,
+              hex: activeEntry.hex,
+            });
           }
         }
 
-        // Mapear cada píxel del logo a su índice de paleta (-1 = transparente)
+        // Mapear cada píxel del logo al centroide original más cercano (y desde ahí a su índice tras override)
         const rawLogoGrid = new Int16Array(logoCols * logoRows);
         const px = resized.data;
-        const candidatePool = paletteIdsForLogo.length > 0 ? paletteIdsForLogo : [0];
 
         for (let i = 0; i < logoCols * logoRows; i++) {
           const a = px[i * 4 + 3];
@@ -980,14 +1010,14 @@ export function buildKnitPixelGrid(
           const g = px[i * 4 + 1];
           const b = px[i * 4 + 2];
 
-          let bestPaletteIdx = candidatePool[0];
+          let bestPaletteIdx = centroidToPaletteIdx[0] ?? 0;
           let bestDist = Infinity;
-          for (let j = 0; j < paletteRgb.length; j++) {
-            const pr = paletteRgb[j];
-            const d = colorDistSq(r, g, b, pr[0], pr[1], pr[2]);
+          for (let j = 0; j < quantizedColors.length; j++) {
+            const qc = quantizedColors[j];
+            const d = colorDistSq(r, g, b, qc[0], qc[1], qc[2]);
             if (d < bestDist) {
               bestDist = d;
-              bestPaletteIdx = j;
+              bestPaletteIdx = centroidToPaletteIdx[j];
             }
           }
           rawLogoGrid[i] = bestPaletteIdx;
@@ -1159,5 +1189,7 @@ export function buildKnitPixelGrid(
     logoRect,
     hasLogo,
     smallDetailWarning,
+    logoParts,
+    colorsReducedByLimit,
   };
 }

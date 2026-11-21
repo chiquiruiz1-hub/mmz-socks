@@ -178,6 +178,50 @@ export const COTTON_BASE_PALETTE: CottonBaseColor[] = [
 // Color inicial de talón y puntera: E4 Antracite (de la carta TecnoYarn)
 export const DEFAULT_HEEL_TOE_COLOR = '#151522';
 
+// 16 colores sencillos en español para la pantalla principal del cliente,
+// cada uno mapeado a su referencia exacta de la carta TecnoYarn (110 colores).
+export interface SimpleYarnColor {
+  name: string;
+  code: string;
+  hex: string;
+}
+
+const SIMPLE_COLOR_SPECS: Array<{ name: string; code: string }> = [
+  { name: 'Blanco', code: 'E1' },
+  { name: 'Negro', code: 'E3' },
+  { name: 'Gris', code: 'E8' },
+  { name: 'Azul marino', code: 'E12' },
+  { name: 'Azul', code: 'E19' },
+  { name: 'Celeste', code: 'E16' },
+  { name: 'Rojo', code: 'E33' },
+  { name: 'Burdeos', code: 'E31' },
+  { name: 'Verde', code: 'E44' },
+  { name: 'Verde botella', code: 'E41' },
+  { name: 'Amarillo', code: 'E36' },
+  { name: 'Naranja', code: 'E35' },
+  { name: 'Rosa', code: 'E47' },
+  { name: 'Morado', code: 'E51' },
+  { name: 'Marrón', code: 'E23' },
+  { name: 'Beige', code: 'E30' },
+];
+
+const TECNOYARN_BY_CODE = new Map<string, TecnoYarnColor>(
+  TECNOYARN_PALETTE.map((c) => [c.code, c])
+);
+
+export const SIMPLE_YARN_COLORS: SimpleYarnColor[] = SIMPLE_COLOR_SPECS.map((spec) => {
+  const entry = TECNOYARN_BY_CODE.get(spec.code) || TECNOYARN_PALETTE[0];
+  return {
+    name: spec.name,
+    code: entry.code,
+    hex: entry.hex,
+  };
+});
+
+const SIMPLE_BY_CODE = new Map<string, SimpleYarnColor>(
+  SIMPLE_YARN_COLORS.map((c) => [c.code, c])
+);
+
 // Alias de compatibilidad
 export const YARN_PALETTE = TECNOYARN_PALETTE;
 
@@ -254,8 +298,23 @@ export function getYarnColorName(hex: string): string {
 
 /**
  * Devuelve siempre la referencia TecnoYarn "E33 Rosso" (exacta o más cercana).
+ * Se usa en el listado completo de 110 colores, apartado de fábrica, BMP y PDF.
  */
 export function getTecnoYarnLabel(hex: string): string {
   const ty = findNearestTecnoYarnByHex(hex);
   return `${ty.code} ${ty.name}`;
+}
+
+/**
+ * Devuelve un nombre amigable en español sin códigos técnicos para la pantalla
+ * principal del cliente (p. ej. "Rojo", "Azul marino", "Antracite").
+ */
+export function getFriendlyColorName(hex: string): string {
+  const normalized = (hex || '').trim().toLowerCase();
+  const cotton = COTTON_BY_HEX.get(normalized);
+  if (cotton) return cotton.name;
+  const ty = findNearestTecnoYarnByHex(normalized);
+  const simple = SIMPLE_BY_CODE.get(ty.code);
+  if (simple) return simple.name;
+  return ty.name;
 }

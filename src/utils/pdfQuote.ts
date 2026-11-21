@@ -598,7 +598,9 @@ export async function generateAndDownloadQuotePdf({
 
   const colorsSummary = `Caña: ${getColorLabel(config.legColor)} · Puño: ${getColorLabel(
     config.cuffColor
-  )} · Pie: ${getColorLabel(config.footColor)} · Refuerzo fijo: Gris Pizarra (#2B3140)`;
+  )} · Pie: ${getColorLabel(config.footColor)} · Talón y puntera: ${getTecnoYarnLabel(
+    heelToeHex
+  )} (${heelToeHex.toUpperCase()})`;
 
   const hasPattern = Boolean(config.pattern && config.pattern.type !== 'none');
   const motifsAndLogoSummary = [

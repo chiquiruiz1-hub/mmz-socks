@@ -18,6 +18,7 @@ export interface SockConfig {
   needleCount?: NeedleCount; // 168 by default; 200 provisional
   maxColors?: number; // 2..6 max inks allowed in the design grid
   cleanEdges?: boolean; // Despeckle & fringe cleanup on logo pixels
+  logoColorOverrides?: Record<string, string>; // Map original TecnoYarn code -> user-selected hex
   logo: {
     url: string | null;
     scale: number; // 0.4 to 1.4
