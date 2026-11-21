@@ -76,6 +76,7 @@ const STEPS: Array<{ id: WizardStep; shortTitle: string; title: string }> = [
 
 interface ConfiguratorSectionProps {
   onSelectConfigForQuote: (config: SockConfig, snapshotUrl?: string) => void;
+  onStickyBarVisibilityChange?: (visible: boolean) => void;
 }
 
 /**
@@ -305,7 +306,10 @@ const SimpleYarnPicker: React.FC<SimpleYarnPickerProps> = ({
   );
 };
 
-export const ConfiguratorSection: React.FC<ConfiguratorSectionProps> = ({ onSelectConfigForQuote }) => {
+export const ConfiguratorSection: React.FC<ConfiguratorSectionProps> = ({
+  onSelectConfigForQuote,
+  onStickyBarVisibilityChange,
+}) => {
   const sectionRef = useRef<HTMLElement>(null);
   const stepPanelRef = useRef<HTMLDivElement>(null);
   const knittedTextInputRef = useRef<HTMLInputElement>(null);
@@ -388,6 +392,13 @@ export const ConfiguratorSection: React.FC<ConfiguratorSectionProps> = ({ onSele
     }
     return () => observer.disconnect();
   }, []);
+
+  useEffect(() => {
+    onStickyBarVisibilityChange?.(isInViewport);
+    return () => {
+      onStickyBarVisibilityChange?.(false);
+    };
+  }, [isInViewport, onStickyBarVisibilityChange]);
 
   // Cálculo de precios (sin cambios en pricing.ts)
   const pricing = calculatePricing(config);

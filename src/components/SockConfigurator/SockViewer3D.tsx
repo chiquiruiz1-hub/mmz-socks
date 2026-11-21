@@ -23,17 +23,18 @@ interface SockViewer3DProps {
   resetViewSignal?: number;
 }
 
-// Target center point of the sock & podium assembly (entero con margen arriba y abajo en móvil y escritorio)
-const TARGET = new THREE.Vector3(0, 0.48, 0);
-const CAMERA_DISTANCE = 2.42;
-const CAMERA_FOV = 28;
-const ELEVATION_ANGLE = 0.17;
+// Target center point of the sock & podium assembly (entero con margen libre arriba y abajo en 360-430px y escritorio)
+const TARGET = new THREE.Vector3(0, 0.58, 0);
+const CAMERA_DISTANCE = 3.72;
+const CAMERA_FOV = 23;
+const ELEVATION_ANGLE = 0.23; // ~13.2° sobre la horizontal (polar ~76.8°, dentro de 60°-100°)
 
 // View presets (azimuth around target in radians)
+// Frente en 3/4 (~13° desde el centro del logo) para que el logo se lea entero ("CHURRERÍA PEPE") y la puntera/talón tengan proporción natural
 const PRESETS = {
-  frente: 2.2,
-  lado: 1.2,
-  talon: -0.3,
+  frente: 2.42,
+  lado: 1.05,
+  talon: -0.35,
 } as const;
 
 type PresetKey = keyof typeof PRESETS;
@@ -68,7 +69,7 @@ function drawPixelatedCircle(
 }
 
 /**
- * Draw horizontal Jacquard stripes with subtle stitch teeth along edges (for cuff)
+ * Draw horizontal Jacquard stripes with soft anti-aliased edges (avoids zigzag moiré on high-DPI screens)
  */
 function drawJacquardStripes(
   ctx: CanvasRenderingContext2D,
@@ -84,26 +85,57 @@ function drawJacquardStripes(
   const ratio = thickness === 'thin' ? 0.28 : thickness === 'medium' ? 0.46 : 0.64;
   const bandH = step * ratio;
 
-  ctx.fillStyle = stripeColor;
-  const stitchW = 8;
-  const toothH = 3;
-
   for (let i = 0; i < safeCount; i++) {
     const centerV = vStart + step * (i + 0.5);
     const yTop = Math.round((centerV - bandH / 2) * 1024);
     const hPx = Math.max(8, Math.round(bandH * 1024));
 
+    ctx.fillStyle = stripeColor;
     ctx.fillRect(0, yTop, 1024, hPx);
 
-    for (let x = 0; x < 1024; x += stitchW) {
-      ctx.fillRect(x, yTop - toothH, stitchW / 2, toothH);
-      ctx.fillRect(x + stitchW / 2, yTop + hPx, stitchW / 2, toothH);
-    }
+    // Borde suavizado de 2 px para que el mipmapping filtre sin dientes de sierra ni moaré
+    ctx.save();
+    ctx.globalAlpha = 0.42;
+    ctx.fillRect(0, yTop - 2, 1024, 2);
+    ctx.fillRect(0, yTop + hPx, 1024, 2);
+    ctx.restore();
   }
 }
 
 /**
- * Soft radial contact shadow texture placed on top of the dark studio podium
+ * Light studio gradient backdrop texture (contrast for white, black and colored socks, and preserved in PDF/PNG snapshots)
+ */
+function createStudioBackgroundTexture(): THREE.CanvasTexture | null {
+  const canvas = document.createElement('canvas');
+  canvas.width = 512;
+  canvas.height = 512;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return null;
+
+  // Base vertical suave gris-azulado claro a gris medio
+  const vGrad = ctx.createLinearGradient(0, 0, 0, 512);
+  vGrad.addColorStop(0.0, '#D2DCE6');
+  vGrad.addColorStop(0.55, '#DCE5EE');
+  vGrad.addColorStop(1.0, '#B9C6D3');
+  ctx.fillStyle = vGrad;
+  ctx.fillRect(0, 0, 512, 512);
+
+  // Halo sutil de foco de estudio detrás del calcetín
+  const rGrad = ctx.createRadialGradient(256, 224, 28, 256, 232, 260);
+  rGrad.addColorStop(0.0, 'rgba(244, 248, 252, 0.72)');
+  rGrad.addColorStop(0.6, 'rgba(232, 240, 247, 0.25)');
+  rGrad.addColorStop(1.0, 'rgba(185, 198, 211, 0.0)');
+  ctx.fillStyle = rGrad;
+  ctx.fillRect(0, 0, 512, 512);
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.needsUpdate = true;
+  return texture;
+}
+
+/**
+ * Soft radial contact shadow texture placed on top of the studio podium
  */
 function createContactShadowTexture(): THREE.CanvasTexture | null {
   const canvas = document.createElement('canvas');
@@ -114,9 +146,9 @@ function createContactShadowTexture(): THREE.CanvasTexture | null {
 
   ctx.clearRect(0, 0, 256, 256);
   const grad = ctx.createRadialGradient(128, 128, 12, 128, 128, 122);
-  grad.addColorStop(0, 'rgba(2, 8, 14, 0.58)');
-  grad.addColorStop(0.5, 'rgba(2, 8, 14, 0.26)');
-  grad.addColorStop(1, 'rgba(2, 8, 14, 0.0)');
+  grad.addColorStop(0, 'rgba(15, 35, 50, 0.30)');
+  grad.addColorStop(0.5, 'rgba(15, 35, 50, 0.12)');
+  grad.addColorStop(1, 'rgba(15, 35, 50, 0.0)');
 
   ctx.fillStyle = grad;
   ctx.fillRect(0, 0, 256, 256);
@@ -133,15 +165,35 @@ function createContactShadowTexture(): THREE.CanvasTexture | null {
 interface InlineKnitLupaProps {
   grid: KnitPixelGrid | null;
   config: ExtendedSockConfig;
+  initialAnchor: { x: number; y: number };
   onClose: () => void;
 }
 
-const InlineKnitLupa: React.FC<InlineKnitLupaProps> = ({ grid, config, onClose }) => {
+const InlineKnitLupa: React.FC<InlineKnitLupaProps> = ({
+  grid,
+  config,
+  initialAnchor,
+  onClose,
+}) => {
+  const overlayRef = useRef<HTMLDivElement>(null);
   const lensRef = useRef<HTMLCanvasElement>(null);
   const rafRef = useRef<number | null>(null);
+  // Caché del tejido completo en alta resolución (6 px/puntada) para que arrastrar la lupa a x2/x4 sea instantáneo (<1 ms)
+  const knitCacheRef = useRef<{ grid: KnitPixelGrid | null; canvas: HTMLCanvasElement | null }>({
+    grid: null,
+    canvas: null,
+  });
   const [zoom, setZoom] = useState<2 | 4 | 6 | 8>(2);
-  // Posición inicial centrada sobre el logo en la caña del calcetín
-  const [pos, setPos] = useState<{ x: number; y: number }>({ x: 0.5, y: 0.42 });
+  // Punto de anclaje real del logo sobre el calcetín 3D en coordenadas normalizadas del visor
+  const [anchor] = useState<{ x: number; y: number }>(() => ({
+    x: Math.max(0.2, Math.min(0.8, initialAnchor.x)),
+    y: Math.max(0.24, Math.min(0.72, initialAnchor.y)),
+  }));
+  // Posición actual del centro de la lente (empieza exactamente centrada sobre el logo)
+  const [pos, setPos] = useState<{ x: number; y: number }>(() => ({
+    x: Math.max(0.2, Math.min(0.8, initialAnchor.x)),
+    y: Math.max(0.24, Math.min(0.72, initialAnchor.y)),
+  }));
   const [side, setSide] = useState<'front' | 'back'>('front');
 
   const isMobile = typeof window !== 'undefined' && window.innerWidth < 640;
@@ -151,7 +203,7 @@ const InlineKnitLupa: React.FC<InlineKnitLupaProps> = ({ grid, config, onClose }
     const lens = lensRef.current;
     if (!grid || !lens) return;
 
-    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const dpr = Math.min(window.devicePixelRatio || 1, isMobile ? 1.5 : 2);
     const backing = Math.round(lensSize * dpr);
     if (lens.width !== backing || lens.height !== backing) {
       lens.width = backing;
@@ -169,18 +221,55 @@ const InlineKnitLupa: React.FC<InlineKnitLupaProps> = ({ grid, config, onClose }
       : Math.round((grid.safeZone.minRow + grid.safeZone.maxRow) / 2);
 
     // En x2 mostramos el dibujo ENTERO centrado con margen (sin recortar por los lados).
-    // Al subir a x4, x6, x8 ampliamos progresivamente sobre el punto bajo el dedo/ratón.
-    const fullLogoCols = grid.logoRect ? Math.max(52, Math.round(grid.logoRect.cols * 1.28)) : 64;
+    // Al subir a x4, x6, x8 ampliamos progresivamente sobre el punto bajo la lente.
+    const fullLogoCols = grid.logoRect ? Math.max(52, Math.round(grid.logoRect.cols * 1.32)) : 64;
     const visibleCols = Math.max(10, fullLogoCols / (zoom / 2));
 
-    // Desplazamiento suave desde el centro del logo según la posición del puntero en el visor
-    const panCols = grid.logoRect ? grid.logoRect.cols * 1.15 : grid.width * 0.36;
-    const panRows = grid.logoRect ? grid.logoRect.rows * 1.4 : grid.height * 0.45;
-    const focusCol = baseCol + (pos.x - 0.5) * panCols;
-    const focusRow = baseRow + (pos.y - 0.42) * panRows;
+    // Desplazamiento exacto desde el centro real del logo (anchor) hacia la posición actual de la lente
+    const panCols = grid.logoRect ? grid.logoRect.cols * 1.2 : grid.width * 0.36;
+    const panRows = grid.logoRect ? grid.logoRect.rows * 1.45 : grid.height * 0.45;
+    const focusCol = baseCol + (pos.x - anchor.x) * panCols;
+    const focusRow = baseRow + (pos.y - anchor.y) * panRows;
+
+    // Para x2 y x4 (muchas puntadas visibles), recortamos desde la textura V-stitch cacheada (<1 ms, 0 bloqueos).
+    // Para x6 y x8 (pocas puntadas visibles), renderizamos macro vectorial con torsión de fibras (<10 ms).
+    if (zoom <= 4) {
+      if (knitCacheRef.current.grid !== grid || !knitCacheRef.current.canvas) {
+        const cache = document.createElement('canvas');
+        renderGridToKnitCanvas(grid, cache, false);
+        knitCacheRef.current = { grid, canvas: cache };
+      }
+      const src = knitCacheRef.current.canvas;
+      if (src) {
+        const scaleX = src.width / grid.width;
+        const scaleY = src.height / grid.height;
+        const visibleRows = visibleCols * 0.92;
+        const sw = visibleCols * scaleX;
+        const sh = visibleRows * scaleY;
+        const sxRaw = (focusCol - visibleCols / 2) * scaleX;
+        const sy = Math.max(0, Math.min(src.height - sh, (focusRow - visibleRows / 2) * scaleY));
+
+        // Wrap cilíndrico horizontal (la caña es un tubo continuo)
+        const sx = ((sxRaw % src.width) + src.width) % src.width;
+        ctx.clearRect(0, 0, backing, backing);
+        ctx.imageSmoothingEnabled = true;
+        ctx.imageSmoothingQuality = 'high';
+
+        if (sx + sw <= src.width) {
+          ctx.drawImage(src, sx, sy, sw, sh, 0, 0, backing, backing);
+        } else {
+          const firstW = src.width - sx;
+          const secondW = sw - firstW;
+          const firstDestW = (firstW / sw) * backing;
+          ctx.drawImage(src, sx, sy, firstW, sh, 0, 0, firstDestW, backing);
+          ctx.drawImage(src, 0, sy, secondW, sh, firstDestW, 0, backing - firstDestW, backing);
+        }
+        return;
+      }
+    }
 
     renderKnitMacroRegion(grid, ctx, backing, backing, focusCol, focusRow, visibleCols, false);
-  }, [grid, config.logo.rotation, side, zoom, pos, lensSize]);
+  }, [grid, config.logo.rotation, side, zoom, pos, anchor, lensSize, isMobile]);
 
   // Throttle por requestAnimationFrame para 0 bloqueos al arrastrar la lupa
   useEffect(() => {
@@ -196,9 +285,25 @@ const InlineKnitLupa: React.FC<InlineKnitLupaProps> = ({ grid, config, onClose }
 
   const handlePointer = (e: React.PointerEvent<HTMLDivElement>) => {
     const r = e.currentTarget.getBoundingClientRect();
+    if (r.width <= 0 || r.height <= 0) return;
+
+    const rawX = e.clientX - r.left;
+    // En táctil, desplazamos la lente hacia arriba (~radio de la lente) para que el dedo no la tape
+    const touchLiftPx = e.pointerType === 'touch' ? Math.round(lensSize * 0.58) : 0;
+    const rawY = e.clientY - r.top - touchLiftPx;
+
+    const half = lensSize / 2;
+    const minX = half + 10;
+    const maxX = Math.max(minX, r.width - half - 10);
+    const minY = half + 60;
+    const maxY = Math.max(minY, r.height - half - 42);
+
+    const clampedX = Math.max(minX, Math.min(maxX, rawX));
+    const clampedY = Math.max(minY, Math.min(maxY, rawY));
+
     setPos({
-      x: Math.max(0.08, Math.min(0.92, (e.clientX - r.left) / r.width)),
-      y: Math.max(0.14, Math.min(0.86, (e.clientY - r.top) / r.height)),
+      x: clampedX / r.width,
+      y: clampedY / r.height,
     });
   };
 
@@ -206,6 +311,7 @@ const InlineKnitLupa: React.FC<InlineKnitLupaProps> = ({ grid, config, onClose }
 
   return (
     <div
+      ref={overlayRef}
       data-testid="lupa-inline-overlay"
       className="absolute inset-0 z-30 select-none touch-none cursor-crosshair"
       onPointerDown={(e) => {
@@ -222,7 +328,7 @@ const InlineKnitLupa: React.FC<InlineKnitLupaProps> = ({ grid, config, onClose }
     >
       {/* Barra superior pegada al visor: aumentos x2/x4/x6/x8 + Cerrar */}
       <div className="absolute top-3 left-3 right-3 z-20 flex flex-wrap items-center justify-between gap-2 pointer-events-auto">
-        <div className="flex items-center gap-1 bg-[#0A1A23]/90 backdrop-blur-md p-1 rounded-2xl border border-white/20 shadow-lg">
+        <div className="flex items-center gap-1 bg-petrol-dark/90 backdrop-blur-md p-1 rounded-2xl border border-white/20 shadow-lg">
           {([2, 4, 6, 8] as const).map((z) => (
             <button
               key={z}
@@ -253,7 +359,7 @@ const InlineKnitLupa: React.FC<InlineKnitLupaProps> = ({ grid, config, onClose }
           type="button"
           data-testid="btn-close-lupa"
           onClick={onClose}
-          className="inline-flex items-center gap-1.5 px-3.5 min-h-[44px] rounded-2xl bg-[#0A1A23]/90 hover:bg-white/20 backdrop-blur-md text-white text-xs font-bold border border-white/25 shadow-lg transition-colors"
+          className="inline-flex items-center gap-1.5 px-3.5 min-h-[44px] rounded-2xl bg-petrol-dark/90 hover:bg-petrol text-white text-xs font-bold border border-white/25 shadow-lg transition-colors"
           aria-label="Cerrar lupa"
         >
           <X className="w-4 h-4 text-yarn-mustard" />
@@ -261,31 +367,22 @@ const InlineKnitLupa: React.FC<InlineKnitLupaProps> = ({ grid, config, onClose }
         </button>
       </div>
 
-      {/* Punto de enfoque sobre el calcetín */}
-      <span
-        className="absolute w-2.5 h-2.5 rounded-full bg-yarn-mustard ring-2 ring-white pointer-events-none shadow"
-        style={{
-          left: `calc(${pos.x * 100}% - 5px)`,
-          top: `calc(${pos.y * 100}% - 5px)`,
-        }}
-      />
-
-      {/* Lente circular dentro del visor 3D */}
+      {/* Lente circular dentro del visor 3D (siempre dentro de los límites del visor) */}
       <canvas
         ref={lensRef}
         data-testid="lupa-lens-canvas"
-        className="absolute rounded-full border-[3px] border-yarn-mustard shadow-[0_14px_40px_rgba(0,0,0,0.8)] pointer-events-none"
+        className="absolute rounded-full border-[3px] border-yarn-mustard shadow-[0_14px_36px_rgba(15,35,50,0.45)] pointer-events-none"
         style={{
           width: lensSize,
           height: lensSize,
           left: `clamp(10px, calc(${pos.x * 100}% - ${lensSize / 2}px), calc(100% - ${lensSize + 10}px))`,
-          top: `clamp(60px, calc(${pos.y * 100}% - ${lensSize / 2}px), calc(100% - ${lensSize + 44}px))`,
+          top: `clamp(60px, calc(${pos.y * 100}% - ${lensSize / 2}px), calc(100% - ${lensSize + 42}px))`,
         }}
       />
 
       {/* Indicación corta en la base del visor */}
       <div className="absolute bottom-3 left-3 right-3 flex justify-center pointer-events-none">
-        <span className="px-3 py-1 rounded-full bg-[#0A1A23]/85 backdrop-blur-md border border-white/15 text-[11px] text-slate-200 font-medium">
+        <span className="px-3 py-1 rounded-full bg-petrol-dark/85 backdrop-blur-md border border-white/15 text-[11px] text-white font-medium shadow-md">
           Mueve el dedo o el ratón sobre el calcetín para ver el tejido de cerca
         </span>
       </div>
@@ -333,6 +430,8 @@ export const SockViewer3D: React.FC<SockViewer3DProps> = ({
   const [autoRotate, setAutoRotate] = useState(false);
   const [activePreset, setActivePreset] = useState<PresetKey | null>('frente');
   const [lupaOpen, setLupaOpen] = useState(false);
+  const [lupaAnchor, setLupaAnchor] = useState<{ x: number; y: number }>({ x: 0.5, y: 0.44 });
+  const legBoundsRef = useRef<THREE.Box3 | null>(null);
 
   // Refs estables para evitar recalcular texturas al girar la cámara o al cambiar callbacks del padre
   const configRef = useRef(config);
@@ -400,6 +499,8 @@ export const SockViewer3D: React.FC<SockViewer3DProps> = ({
     targetTheta: number;
     startPhi: number;
     targetPhi: number;
+    startDistance: number;
+    targetDistance: number;
   } | null>(null);
 
   // Redraw all zone textures ONLY when designKey or logoVersion actually changes
@@ -671,8 +772,12 @@ export const SockViewer3D: React.FC<SockViewer3DProps> = ({
     let isDisposed = false;
     let animationFrameId: number;
 
-    // 1. Scene
+    // 1. Scene con fondo degradado claro de estudio (contraste nítido con calcetín blanco, negro y de color)
     const scene = new THREE.Scene();
+    const studioBgTex = createStudioBackgroundTexture();
+    if (studioBgTex) {
+      scene.background = studioBgTex;
+    }
     sceneRef.current = scene;
 
     // 2. Camera
@@ -691,59 +796,65 @@ export const SockViewer3D: React.FC<SockViewer3DProps> = ({
     );
     camera.lookAt(TARGET);
 
-    // 3. Renderer con fondo oscuro de estudio (#0A1A23), pixelRatio acotado y sin copia extra de framebuffer
+    // 3. Renderer con antialias activo en móvil y escritorio, pixelRatio min(dpr, 2) para bordes suaves en pantallas 2.6x-3x
     const isMobile = window.innerWidth < 768;
     const renderer = new THREE.WebGLRenderer({
-      antialias: !isMobile,
+      antialias: true,
       alpha: false,
       powerPreference: 'high-performance',
       preserveDrawingBuffer: false,
     });
     rendererRef.current = renderer;
     renderer.setSize(container.clientWidth, container.clientHeight);
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, isMobile ? 1.25 : 1.5));
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
     renderer.shadowMap.enabled = false;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = 1.08;
+    renderer.toneMappingExposure = 1.15;
     renderer.outputColorSpace = THREE.SRGBColorSpace;
-    renderer.setClearColor(0x0a1a23, 1);
+    renderer.setClearColor(0xd4dee8, 1);
     renderer.domElement.style.width = '100%';
     renderer.domElement.style.height = '100%';
     renderer.domElement.style.display = 'block';
     container.appendChild(renderer.domElement);
 
-    const maxAnisotropy = Math.min(4, renderer.capabilities.getMaxAnisotropy());
-    const normalAnisotropy = Math.min(2, maxAnisotropy);
+    const maxAnisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy());
+    const normalAnisotropy = Math.min(4, maxAnisotropy);
 
-    // 4. OrbitControls
+    // 4. OrbitControls: vertical bloqueado entre ~60° y ~100°, giro horizontal libre, zoom acotado, sin paneo
     const controls = new OrbitControls(camera, renderer.domElement);
     controlsRef.current = controls;
     controls.target.copy(TARGET);
-    controls.enableZoom = false;
+    controls.enableZoom = true;
+    controls.minDistance = 2.15;
+    controls.maxDistance = 4.4;
     controls.enablePan = false;
     controls.enableDamping = true;
     controls.dampingFactor = 0.08;
-    controls.minPolarAngle = Math.PI * 0.10;
-    controls.maxPolarAngle = Math.PI * 0.48;
+    controls.minPolarAngle = Math.PI * (60 / 180);
+    controls.maxPolarAngle = Math.PI * (100 / 180);
 
-    // 5. Iluminación de estudio (hemisférica + clave cálida + contraluz de perfil)
-    const hemiLight = new THREE.HemisphereLight(0xf8fafc, 0x163142, 0.95);
+    // 5. Iluminación luminosa de estudio (el calcetín blanco se ve blanco puro y talón/puntera oscuros conservan volumen)
+    const hemiLight = new THREE.HemisphereLight(0xffffff, 0xcbd5e1, 1.45);
     scene.add(hemiLight);
 
-    const keyLight = new THREE.DirectionalLight(0xfffaf2, 1.5);
-    keyLight.position.set(-2.2, 3.8, 2.6);
+    const keyLight = new THREE.DirectionalLight(0xffffff, 1.55);
+    keyLight.position.set(-2.2, 3.6, 2.8);
     scene.add(keyLight);
 
-    const rimLight = new THREE.DirectionalLight(0x93c5fd, 0.9);
-    rimLight.position.set(1.4, 2.4, -2.5);
+    const fillLight = new THREE.DirectionalLight(0xf1f5f9, 0.85);
+    fillLight.position.set(2.4, 1.8, 2.2);
+    scene.add(fillLight);
+
+    const rimLight = new THREE.DirectionalLight(0xffffff, 0.55);
+    rimLight.position.set(1.2, 2.6, -2.6);
     scene.add(rimLight);
 
-    // 6. Peana cilíndrica oscura de estudio (integrada con el fondo #0A1A23)
+    // 6. Peana cilíndrica clara de estudio
     const podiumGeo = new THREE.CylinderGeometry(0.40, 0.42, 0.075, 64);
     const podiumMat = new THREE.MeshStandardMaterial({
-      color: 0x152c39,
-      roughness: 0.36,
-      metalness: 0.16,
+      color: 0xd5dfe8,
+      roughness: 0.42,
+      metalness: 0.08,
     });
     const podium = new THREE.Mesh(podiumGeo, podiumMat);
     podium.position.set(0, -0.0375, 0);
@@ -833,7 +944,7 @@ export const SockViewer3D: React.FC<SockViewer3DProps> = ({
       roughness: 0.92,
       metalness: 0,
       normalMap: normalMapCuffRib,
-      normalScale: new THREE.Vector2(0.85, 0.45),
+      normalScale: new THREE.Vector2(0.55, 0.25),
     });
 
     const legMat = new THREE.MeshStandardMaterial({
@@ -961,6 +1072,16 @@ export const SockViewer3D: React.FC<SockViewer3DProps> = ({
         });
 
         scene.add(gltf.scene);
+        gltf.scene.updateMatrixWorld(true);
+        // Guardar la caja envolvente real de la caña para centrar la lupa exactamente sobre el logo
+        gltf.scene.traverse((child) => {
+          if ((child as THREE.Mesh).isMesh) {
+            const m = child as THREE.Mesh;
+            if (m.material === legMat) {
+              legBoundsRef.current = new THREE.Box3().setFromObject(m);
+            }
+          }
+        });
         setIsLoading(false);
         setLoadError(null);
 
@@ -1042,9 +1163,10 @@ export const SockViewer3D: React.FC<SockViewer3DProps> = ({
 
         const currentTheta = anim.startTheta + (anim.targetTheta - anim.startTheta) * ease;
         const currentPhi = anim.startPhi + (anim.targetPhi - anim.startPhi) * ease;
+        const currentDist = anim.startDistance + (anim.targetDistance - anim.startDistance) * ease;
 
-        const curRHoriz = CAMERA_DISTANCE * Math.cos(currentPhi);
-        const curRVert = CAMERA_DISTANCE * Math.sin(currentPhi);
+        const curRHoriz = currentDist * Math.cos(currentPhi);
+        const curRVert = currentDist * Math.sin(currentPhi);
 
         camera.position.set(
           TARGET.x + curRHoriz * Math.sin(currentTheta),
@@ -1124,8 +1246,7 @@ export const SockViewer3D: React.FC<SockViewer3DProps> = ({
       if (!container || !renderer || !camera) return;
       const width = container.clientWidth;
       const height = container.clientHeight || 1;
-      const mobileNow = window.innerWidth < 768;
-      renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, mobileNow ? 1.25 : 1.5));
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
       camera.aspect = width / height;
       camera.updateProjectionMatrix();
       renderer.setSize(width, height);
@@ -1147,6 +1268,7 @@ export const SockViewer3D: React.FC<SockViewer3DProps> = ({
       renderer.dispose();
       podiumGeo.dispose();
       podiumMat.dispose();
+      studioBgTex?.dispose();
       contactShadowGeo.dispose();
       contactShadowMat.dispose();
       contactShadowTex?.dispose();
@@ -1181,9 +1303,10 @@ export const SockViewer3D: React.FC<SockViewer3DProps> = ({
     const dx = camera.position.x - TARGET.x;
     const dy = camera.position.y - TARGET.y;
     const dz = camera.position.z - TARGET.z;
+    const currentDist = Math.max(0.5, Math.sqrt(dx * dx + dy * dy + dz * dz));
 
     const currentTheta = Math.atan2(dx, dz);
-    const currentPhi = Math.asin(Math.max(-0.99, Math.min(0.99, dy / CAMERA_DISTANCE)));
+    const currentPhi = Math.asin(Math.max(-0.99, Math.min(0.99, dy / currentDist)));
 
     const targetThetaValue = PRESETS[preset];
     const targetPhi = ELEVATION_ANGLE;
@@ -1200,9 +1323,50 @@ export const SockViewer3D: React.FC<SockViewer3DProps> = ({
       targetTheta: currentTheta + deltaTheta,
       startPhi: currentPhi,
       targetPhi,
+      startDistance: currentDist,
+      targetDistance: CAMERA_DISTANCE,
     };
     requestRenderRef.current();
   };
+
+  // Proyecta el centro real del logo (o el centro de la caña si no hay logo) a coordenadas [0..1] del visor
+  const computeLogoScreenAnchor = useCallback((): { x: number; y: number } => {
+    const camera = cameraRef.current;
+    const legBox = legBoundsRef.current;
+    if (!camera || !legBox) return { x: 0.5, y: 0.44 };
+
+    const center = new THREE.Vector3();
+    legBox.getCenter(center);
+
+    // Calcular altura del logo dentro de la caña usando logoRect (v=0 arriba, v=1 abajo)
+    let vLogo = 0.5;
+    if (currentGrid?.logoRect) {
+      vLogo = currentGrid.logoRect.rowCenter / Math.max(1, currentGrid.height);
+    } else if (currentGrid) {
+      vLogo = ((currentGrid.safeZone.minRow + currentGrid.safeZone.maxRow) * 0.5) / Math.max(1, currentGrid.height);
+    }
+    const worldY = legBox.max.y - vLogo * (legBox.max.y - legBox.min.y);
+
+    // Usar la cámara en la vista frontal final para que coincida exactamente al abrir la lupa
+    const rH = CAMERA_DISTANCE * Math.cos(ELEVATION_ANGLE);
+    const rV = CAMERA_DISTANCE * Math.sin(ELEVATION_ANGLE);
+    const camClone = camera.clone();
+    camClone.position.set(
+      TARGET.x + rH * Math.sin(PRESETS.frente),
+      TARGET.y + rV,
+      TARGET.z + rH * Math.cos(PRESETS.frente)
+    );
+    camClone.lookAt(TARGET);
+    camClone.updateMatrixWorld(true);
+
+    const worldPt = new THREE.Vector3(center.x, worldY, center.z);
+    worldPt.project(camClone);
+
+    return {
+      x: Math.max(0.22, Math.min(0.78, (worldPt.x + 1) * 0.5)),
+      y: Math.max(0.26, Math.min(0.68, (1 - worldPt.y) * 0.5)),
+    };
+  }, [currentGrid]);
 
   // Al cambiar de paso (o pulsar Atrás/Siguiente), el calcetín vuelve solo a la vista de frente
   const setCameraPresetRef = useRef(setCameraPreset);
@@ -1215,21 +1379,25 @@ export const SockViewer3D: React.FC<SockViewer3DProps> = ({
   }, [resetViewSignal]);
 
   return (
-    <div className="relative w-full h-[380px] sm:h-[450px] md:h-[500px] rounded-3xl overflow-hidden bg-[#0A1A23] border border-slate-800 shadow-float select-none flex flex-col justify-between">
+    <div
+      data-testid="sock-viewer-card"
+      className="relative w-full h-[380px] sm:h-[450px] md:h-[500px] rounded-3xl overflow-hidden bg-gradient-to-b from-[#D2DCE6] via-[#DCE5EE] to-[#B9C6D3] border border-slate-300/80 shadow-float select-none flex flex-col justify-between"
+    >
       {/* Top Overlay: View Presets, Lupa & Auto Rotate (se oculta cuando la lupa integrada está activa) */}
       {!lupaOpen && (
-        <div className="absolute top-3 sm:top-4 left-3 sm:left-4 right-3 sm:right-4 z-20 flex items-center justify-between pointer-events-none gap-2">
+        <div className="absolute top-2.5 sm:top-4 left-2.5 sm:left-4 right-2.5 sm:right-4 z-20 flex items-center justify-between pointer-events-none gap-1.5 sm:gap-2">
           {/* Camera Preset Buttons */}
-          <div className="flex items-center gap-1 bg-white/10 backdrop-blur-md p-1 rounded-2xl shadow-sm border border-white/15 pointer-events-auto">
+          <div className="flex items-center gap-0.5 sm:gap-1 bg-petrol-dark/80 backdrop-blur-md p-1 rounded-2xl shadow-md border border-white/20 pointer-events-auto">
             {(['frente', 'lado', 'talon'] as PresetKey[]).map((key) => (
               <button
                 key={key}
                 type="button"
+                data-testid={`btn-preset-${key}`}
                 onClick={() => setCameraPreset(key)}
-                className={`px-3 min-h-[40px] sm:min-h-[36px] text-xs font-bold rounded-xl transition-all capitalize ${
+                className={`px-2.5 sm:px-3 min-h-[38px] sm:min-h-[36px] text-[11px] sm:text-xs font-bold rounded-xl transition-all capitalize ${
                   activePreset === key && !autoRotate
                     ? 'bg-yarn-mustard text-petrol-dark shadow-xs'
-                    : 'text-white/85 hover:bg-white/10'
+                    : 'text-white/90 hover:bg-white/10'
                 }`}
               >
                 {key === 'talon' ? 'Talón' : key}
@@ -1237,15 +1405,16 @@ export const SockViewer3D: React.FC<SockViewer3DProps> = ({
             ))}
           </div>
 
-          <div className="flex items-center gap-2 pointer-events-auto">
+          <div className="flex items-center gap-1.5 sm:gap-2 pointer-events-auto">
             <button
               type="button"
               data-testid="btn-open-lupa"
               onClick={() => {
                 setCameraPreset('frente');
+                setLupaAnchor(computeLogoScreenAnchor());
                 setLupaOpen(true);
               }}
-              className="flex items-center gap-1.5 px-3.5 min-h-[44px] sm:min-h-[40px] text-xs font-bold rounded-2xl backdrop-blur-md transition-all shadow-sm border bg-white/15 text-white border-white/20 hover:bg-white/25"
+              className="flex items-center gap-1 sm:gap-1.5 px-2.5 sm:px-3.5 min-h-[40px] sm:min-h-[40px] text-[11px] sm:text-xs font-bold rounded-2xl backdrop-blur-md transition-all shadow-md border bg-petrol-dark/80 text-white border-white/20 hover:bg-petrol-dark/95"
               aria-label="Abrir la lupa para ver el tejido de cerca"
             >
               <ZoomIn className="w-4 h-4 text-yarn-mustard" />
@@ -1260,10 +1429,10 @@ export const SockViewer3D: React.FC<SockViewer3DProps> = ({
                 setAutoRotate(!autoRotate);
                 if (!autoRotate) setActivePreset(null);
               }}
-              className={`flex items-center gap-1.5 px-3 min-h-[44px] sm:min-h-[40px] text-xs font-bold rounded-2xl backdrop-blur-md transition-all shadow-sm border ${
+              className={`flex items-center gap-1.5 px-2.5 sm:px-3 min-h-[40px] sm:min-h-[40px] text-xs font-bold rounded-2xl backdrop-blur-md transition-all shadow-md border ${
                 autoRotate
                   ? 'bg-turquoise text-white border-turquoise shadow-glow'
-                  : 'bg-white/10 text-white/90 border-white/15 hover:bg-white/20'
+                  : 'bg-petrol-dark/80 text-white/95 border-white/20 hover:bg-petrol-dark/95'
               }`}
               aria-label={autoRotate ? 'Pausar giro continuo' : 'Activar giro continuo'}
             >
@@ -1281,25 +1450,25 @@ export const SockViewer3D: React.FC<SockViewer3DProps> = ({
         aria-label="Visor 3D interactivo del calcetín sobre peana"
       >
         {isLoading && (
-          <div className="absolute inset-0 flex items-center justify-center bg-[#0A1A23]/80 backdrop-blur-xs z-10">
-            <div className="flex items-center gap-2 text-white font-semibold text-sm">
-              <Sparkles className="w-5 h-5 text-yarn-mustard animate-pulse" />
+          <div className="absolute inset-0 flex items-center justify-center bg-[#DCE5EE]/85 backdrop-blur-xs z-10">
+            <div className="flex items-center gap-2 text-petrol-dark font-semibold text-sm">
+              <Sparkles className="w-5 h-5 text-turquoise animate-pulse" />
               <span>Cargando calcetín 3D...</span>
             </div>
           </div>
         )}
 
         {loadError && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center bg-[#0A1A23]/95 backdrop-blur-sm z-30 p-6 text-center">
-            <div className="w-12 h-12 rounded-full bg-red-500/20 text-red-300 flex items-center justify-center mb-3">
+          <div className="absolute inset-0 flex flex-col items-center justify-center bg-[#DCE5EE]/95 backdrop-blur-sm z-30 p-6 text-center">
+            <div className="w-12 h-12 rounded-full bg-red-500/15 text-red-600 flex items-center justify-center mb-3">
               <AlertCircle className="w-6 h-6" />
             </div>
-            <h4 className="text-base font-bold text-white mb-1">Error al cargar el visor 3D</h4>
-            <p className="text-xs text-slate-300 mb-4 max-w-xs">{loadError}</p>
+            <h4 className="text-base font-bold text-petrol-dark mb-1">Error al cargar el visor 3D</h4>
+            <p className="text-xs text-slate-600 mb-4 max-w-xs">{loadError}</p>
             <button
               type="button"
               onClick={() => window.location.reload()}
-              className="inline-flex items-center gap-1.5 px-4 py-2 bg-yarn-mustard text-petrol-dark text-xs font-semibold rounded-xl hover:bg-white transition-colors shadow-xs"
+              className="inline-flex items-center gap-1.5 px-4 py-2 bg-petrol text-white text-xs font-semibold rounded-xl hover:bg-petrol-dark transition-colors shadow-xs"
             >
               <RefreshCw className="w-3.5 h-3.5" />
               <span>Reintentar</span>
@@ -1312,6 +1481,7 @@ export const SockViewer3D: React.FC<SockViewer3DProps> = ({
         <InlineKnitLupa
           grid={currentGrid}
           config={config}
+          initialAnchor={lupaAnchor}
           onClose={() => setLupaOpen(false)}
         />
       )}
@@ -1323,13 +1493,13 @@ export const SockViewer3D: React.FC<SockViewer3DProps> = ({
             type="button"
             data-testid="btn-reset-front"
             onClick={() => setCameraPreset('frente')}
-            className="inline-flex items-center gap-2 px-4 min-h-[44px] rounded-2xl bg-white/15 hover:bg-white/25 backdrop-blur-md text-white text-xs font-bold shadow-md border border-white/20 pointer-events-auto transition-colors"
+            className="inline-flex items-center gap-2 px-4 min-h-[44px] rounded-2xl bg-petrol-dark/80 hover:bg-petrol-dark/95 backdrop-blur-md text-white text-xs font-bold shadow-md border border-white/20 pointer-events-auto transition-colors"
           >
             <RefreshCw className="w-3.5 h-3.5 text-yarn-mustard flex-shrink-0" />
             <span>Volver a verlo de frente</span>
           </button>
 
-          <div className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white/10 backdrop-blur-md text-slate-200 text-[11px] font-medium border border-white/15">
+          <div className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-petrol-dark/75 backdrop-blur-md text-white text-[11px] font-medium border border-white/15 shadow-sm">
             <Eye className="w-3.5 h-3.5 text-yarn-mustard" />
             <span>Arrastra para girar</span>
           </div>

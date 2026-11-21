@@ -25,6 +25,7 @@ export const App: React.FC = () => {
   const [selectedConfig, setSelectedConfig] = useState<SockConfig | null>(null);
   const [snapshotUrl, setSnapshotUrl] = useState<string | undefined>(undefined);
   const [submittedData, setSubmittedData] = useState<any | null>(null);
+  const [isMobileStickyBarVisible, setIsMobileStickyBarVisible] = useState(false);
 
   // Scroll suave (Lenis), desactivado si el visitante pide menos movimiento
   useEffect(() => {
@@ -76,7 +77,10 @@ export const App: React.FC = () => {
             </section>
           }
         >
-          <ConfiguratorSection onSelectConfigForQuote={handleSelectConfigForQuote} />
+          <ConfiguratorSection
+            onSelectConfigForQuote={handleSelectConfigForQuote}
+            onStickyBarVisibilityChange={setIsMobileStickyBarVisible}
+          />
         </Suspense>
 
         {/* 4. Nuestra fábrica en Pradoluengo, Burgos */}
@@ -102,6 +106,7 @@ export const App: React.FC = () => {
           selectedConfig={selectedConfig}
           snapshotUrl={snapshotUrl}
           onFormSubmitSuccess={handleFormSubmitSuccess}
+          hideWhatsAppOnMobile={isMobileStickyBarVisible}
         />
       </main>
 

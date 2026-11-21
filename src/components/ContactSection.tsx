@@ -19,12 +19,14 @@ interface ContactSectionProps {
   selectedConfig?: SockConfig | null;
   snapshotUrl?: string;
   onFormSubmitSuccess: (formData: any) => void;
+  hideWhatsAppOnMobile?: boolean;
 }
 
 export const ContactSection: React.FC<ContactSectionProps> = ({
   selectedConfig,
   snapshotUrl,
-  onFormSubmitSuccess
+  onFormSubmitSuccess,
+  hideWhatsAppOnMobile = false
 }) => {
   const [name, setName] = useState('');
   const [company, setCompany] = useState('');
@@ -515,8 +517,14 @@ export const ContactSection: React.FC<ContactSectionProps> = ({
 
       </div>
 
-      {/* Floating WhatsApp pill button (Sticky bottom right) */}
-      <aside aria-label="Contacto directo por WhatsApp" className="fixed bottom-6 right-6 z-50">
+      {/* Floating WhatsApp pill button (oculto en móvil cuando está visible la barra fija del configurador para no tapar "Pedir presupuesto") */}
+      <aside
+        aria-label="Contacto directo por WhatsApp"
+        data-testid="floating-whatsapp"
+        className={`fixed bottom-6 right-6 z-50 transition-opacity duration-200 ${
+          hideWhatsAppOnMobile ? 'hidden lg:block' : ''
+        }`}
+      >
         <a
           href="https://wa.me/34627588488"
           target="_blank"

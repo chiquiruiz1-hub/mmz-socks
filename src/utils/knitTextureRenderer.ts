@@ -409,34 +409,27 @@ export function renderCuffRibbingOverlay(
   height: number,
   needles: number
 ): void {
-  // Canalé 2x2: cada columna de acanalado agrupa ~2 agujas en relieve y 2 hundidas
+  // Canalé 2x2 suave (sin líneas horizontales finas de 1.5px que producen moaré en pantallas de alta densidad)
   const ribCount = Math.round(needles / 4);
   const ribW = width / ribCount;
 
   for (let i = 0; i < ribCount; i++) {
     const x = i * ribW;
     const grad = ctx.createLinearGradient(x, 0, x + ribW, 0);
-    grad.addColorStop(0.0, 'rgba(0, 0, 0, 0.24)');
-    grad.addColorStop(0.18, 'rgba(255, 255, 255, 0.10)');
-    grad.addColorStop(0.45, 'rgba(255, 255, 255, 0.15)');
-    grad.addColorStop(0.68, 'rgba(0, 0, 0, 0.08)');
-    grad.addColorStop(0.86, 'rgba(0, 0, 0, 0.26)');
-    grad.addColorStop(1.0, 'rgba(0, 0, 0, 0.24)');
+    grad.addColorStop(0.0, 'rgba(0, 0, 0, 0.16)');
+    grad.addColorStop(0.22, 'rgba(255, 255, 255, 0.08)');
+    grad.addColorStop(0.48, 'rgba(255, 255, 255, 0.11)');
+    grad.addColorStop(0.74, 'rgba(0, 0, 0, 0.06)');
+    grad.addColorStop(0.92, 'rgba(0, 0, 0, 0.17)');
+    grad.addColorStop(1.0, 'rgba(0, 0, 0, 0.16)');
 
     ctx.fillStyle = grad;
     ctx.fillRect(x, 0, ribW + 0.5, height);
   }
 
-  // Puntadas horizontales sutiles de las pasadas del puño
-  const rowStep = Math.max(6, Math.round(height / 90));
-  ctx.fillStyle = 'rgba(0, 0, 0, 0.06)';
-  for (let y = 0; y < height; y += rowStep) {
-    ctx.fillRect(0, y, width, 1.5);
-  }
-
   // Borde superior ligeramente rematado (elástico del puño)
   const topGrad = ctx.createLinearGradient(0, 0, 0, height * 0.08);
-  topGrad.addColorStop(0, 'rgba(0, 0, 0, 0.22)');
+  topGrad.addColorStop(0, 'rgba(0, 0, 0, 0.18)');
   topGrad.addColorStop(1, 'rgba(0, 0, 0, 0)');
   ctx.fillStyle = topGrad;
   ctx.fillRect(0, 0, width, height * 0.08);
@@ -528,13 +521,12 @@ export function createCuffRibNormalTexture(anisotropy = 8): THREE.CanvasTexture 
   const imgData = ctx.createImageData(size, size);
   const data = imgData.data;
 
-  // 8 columnas de canalé vertical + micro-textura de puntadas horizontales
+  // 8 columnas de canalé vertical suave (sin onda horizontal de alta frecuencia que cause moaré)
   for (let y = 0; y < size; y++) {
-    const stitchWave = Math.sin((y / size) * Math.PI * 2 * 24) * 0.15;
     for (let x = 0; x < size; x++) {
       const ribPhase = (x / size) * Math.PI * 2 * 8;
-      const dx = Math.cos(ribPhase) * 1.45;
-      const dy = stitchWave;
+      const dx = Math.cos(ribPhase) * 1.1;
+      const dy = 0;
 
       let nx = -dx;
       let ny = -dy;
