@@ -254,6 +254,10 @@ export const ConfiguratorSection: React.FC<ConfiguratorSectionProps> = ({ onSele
     setKnitGrid(grid);
   }, []);
 
+  const handleSnapshotReady = useCallback((data: string) => {
+    setSnapshotUrl(data);
+  }, []);
+
   // Initial state: LISO blanco (#FFFFFF) en puño, caña y pie; talón y puntera editables solo en color; 168 agujas por defecto
   const [config, setConfig] = useState<ExtendedSockConfig>({
     cuffColor: '#FFFFFF',
@@ -691,7 +695,7 @@ export const ConfiguratorSection: React.FC<ConfiguratorSectionProps> = ({ onSele
           <div className="lg:col-span-6 xl:col-span-7 min-w-0 lg:sticky lg:top-24 space-y-4">
             <SockViewer3D
               config={config}
-              onSnapshotReady={(data) => setSnapshotUrl(data)}
+              onSnapshotReady={handleSnapshotReady}
               captureSnapshotRef={captureSnapshotRef}
               onUseSampleLogo={setSampleLogo}
               onGridReady={handleGridReady}

@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState, useCallback } from 'react';
+import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import * as THREE from 'three';
 import { createPortal } from 'react-dom';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
@@ -392,6 +392,7 @@ export const SockViewer3D: React.FC<SockViewer3DProps> = ({
   const footTextureRef = useRef<THREE.CanvasTexture | null>(null);
 
   const logoImageRef = useRef<HTMLImageElement | null>(null);
+  const [logoVersion, setLogoVersion] = useState(0);
   const [currentGrid, setCurrentGrid] = useState<KnitPixelGrid | null>(null);
 
   const [isLoading, setIsLoading] = useState(true);
@@ -399,6 +400,54 @@ export const SockViewer3D: React.FC<SockViewer3DProps> = ({
   const [autoRotate, setAutoRotate] = useState(false);
   const [activePreset, setActivePreset] = useState<PresetKey | null>('frente');
   const [lupaOpen, setLupaOpen] = useState(false);
+
+  // Refs estables para evitar recalcular texturas al girar la cámara o al cambiar callbacks del padre
+  const configRef = useRef(config);
+  configRef.current = config;
+  const onSnapshotReadyRef = useRef(onSnapshotReady);
+  onSnapshotReadyRef.current = onSnapshotReady;
+  const onGridReadyRef = useRef(onGridReady);
+  onGridReadyRef.current = onGridReady;
+  const autoRotateRef = useRef(autoRotate);
+  autoRotateRef.current = autoRotate;
+
+  const isVisibleRef = useRef(true);
+  const requestRenderRef = useRef<() => void>(() => {});
+  const lastRenderedKeyRef = useRef<string>('');
+  const hasInitialTextureRef = useRef(false);
+
+  // Clave visual estable: ignora cantidad y material (no afectan a la textura 3D)
+  const designKey = useMemo(
+    () =>
+      JSON.stringify({
+        cuffColor: config.cuffColor,
+        legColor: config.legColor,
+        footColor: config.footColor,
+        heelToeColor: config.heelToeColor,
+        needleCount: config.needleCount ?? 168,
+        maxColors: config.maxColors ?? 6,
+        cleanEdges: config.cleanEdges ?? true,
+        pattern: config.pattern,
+        logo: config.logo,
+        logoBg: config.logoBg,
+        logoPosition: config.logoPosition,
+        knittedText: config.knittedText,
+      }),
+    [
+      config.cuffColor,
+      config.legColor,
+      config.footColor,
+      config.heelToeColor,
+      config.needleCount,
+      config.maxColors,
+      config.cleanEdges,
+      config.pattern,
+      config.logo,
+      config.logoBg,
+      config.logoPosition,
+      config.knittedText,
+    ]
+  );
 
   const introAnimRef = useRef<{
     active: boolean;
@@ -418,8 +467,8 @@ export const SockViewer3D: React.FC<SockViewer3DProps> = ({
     targetPhi: number;
   } | null>(null);
 
-  // Redraw all zone textures from the single-source-of-truth KnitPixelGrid
-  const updateZoneTextures = useCallback(() => {
+  // Redraw all zone textures ONLY when designKey or logoVersion actually changes
+  const updateZoneTextures = useCallback((forceKey?: string) => {
     const cuffCanvas = cuffCanvasRef.current;
     const cuffTex = cuffTextureRef.current;
     const legCanvas = legCanvasRef.current;
@@ -430,18 +479,23 @@ export const SockViewer3D: React.FC<SockViewer3DProps> = ({
 
     if (!cuffCanvas || !cuffTex || !legCanvas || !legTex || !footCanvas || !footTex) return;
 
+    if (forceKey && lastRenderedKeyRef.current === forceKey) {
+      return;
+    }
+
+    const cfg = configRef.current;
     const cuffCtx = cuffCanvas.getContext('2d');
     const footCtx = footCanvas.getContext('2d');
     if (!cuffCtx || !footCtx) return;
 
     // 0. Actualizar color de TALÓN Y PUNTERA (solo color; geometría, medida y posición 100% fijas)
     if (mats) {
-      const htColor = config.heelToeColor || DEFAULT_HEEL_TOE_COLOR;
+      const htColor = cfg.heelToeColor || DEFAULT_HEEL_TOE_COLOR;
       mats.heel.color.set(htColor);
       mats.toe.color.set(htColor);
     }
 
-    const pattern = config.pattern || {
+    const pattern = cfg.pattern || {
       type: 'none',
       color: '#1F4D63',
       stripesZone: 'cuff',
@@ -455,13 +509,13 @@ export const SockViewer3D: React.FC<SockViewer3DProps> = ({
       if (zoneBg.trim().toLowerCase() !== patColor.trim().toLowerCase()) {
         return patColor;
       }
-      if (config.legColor.trim().toLowerCase() !== zoneBg.trim().toLowerCase()) {
-        return config.legColor;
+      if (cfg.legColor.trim().toLowerCase() !== zoneBg.trim().toLowerCase()) {
+        return cfg.legColor;
       }
       return zoneBg.trim().toLowerCase() === '#ffffff' ? '#1F4D63' : '#FFFFFF';
     };
 
-    const needles = config.needleCount === 200 ? 200 : 168;
+    const needles = cfg.needleCount === 200 ? 200 : 168;
 
     // =========================================================================
     // 1. CUFF CANVAS (Puño con acanalado canalé 2x2 visible)
@@ -472,13 +526,13 @@ export const SockViewer3D: React.FC<SockViewer3DProps> = ({
 
     const sameCuffAndStripeColor =
       hasCuffStripes &&
-      config.cuffColor.trim().toLowerCase() === pattern.color.trim().toLowerCase() &&
-      config.legColor.trim().toLowerCase() !== config.cuffColor.trim().toLowerCase();
+      cfg.cuffColor.trim().toLowerCase() === pattern.color.trim().toLowerCase() &&
+      cfg.legColor.trim().toLowerCase() !== cfg.cuffColor.trim().toLowerCase();
 
     if (sameCuffAndStripeColor) {
-      cuffCtx.fillStyle = config.legColor;
+      cuffCtx.fillStyle = cfg.legColor;
       cuffCtx.fillRect(0, 0, 1024, 1024);
-      cuffCtx.fillStyle = config.cuffColor;
+      cuffCtx.fillStyle = cfg.cuffColor;
       cuffCtx.fillRect(0, 0, 1024, Math.round(1024 * 0.16));
       drawJacquardStripes(
         cuffCtx,
@@ -489,10 +543,10 @@ export const SockViewer3D: React.FC<SockViewer3DProps> = ({
         0.92
       );
     } else {
-      cuffCtx.fillStyle = config.cuffColor;
+      cuffCtx.fillStyle = cfg.cuffColor;
       cuffCtx.fillRect(0, 0, 1024, 1024);
       if (hasCuffStripes) {
-        const effColor = resolvePatternColor(config.cuffColor, pattern.color);
+        const effColor = resolvePatternColor(cfg.cuffColor, pattern.color);
         drawJacquardStripes(
           cuffCtx,
           pattern.stripesCount,
@@ -511,14 +565,15 @@ export const SockViewer3D: React.FC<SockViewer3DProps> = ({
     // =========================================================================
     // 2. LEG CANVAS — ÚNICA FUENTE DE VERDAD: KnitPixelGrid (168 o 200 agujas)
     // =========================================================================
-    const grid = buildKnitPixelGrid(config, logoImageRef.current);
+    const grid = buildKnitPixelGrid(cfg, logoImageRef.current);
     setCurrentGrid(grid);
-    if (onGridReady) {
-      onGridReady(grid);
+    if (onGridReadyRef.current) {
+      onGridReadyRef.current(grid);
     }
 
-    // Pintar la cuadrícula como textura de punto tejido en alta resolución (puntadas en V)
-    renderGridToKnitCanvas(grid, legCanvas);
+    // Pintar la cuadrícula como textura de punto tejido (compacta en móvil para menor carga GPU)
+    const isMobile = typeof window !== 'undefined' && window.innerWidth < 768;
+    renderGridToKnitCanvas(grid, legCanvas, isMobile);
 
     // Alinear el normal map de puntadas en V exactamente con el número de agujas
     if (normalMapLegRef.current) {
@@ -531,10 +586,10 @@ export const SockViewer3D: React.FC<SockViewer3DProps> = ({
     // =========================================================================
     // 3. FOOT CANVAS (Base + Lunares/Cuadros opcionales + micro-punto)
     // =========================================================================
-    footCtx.fillStyle = config.footColor;
+    footCtx.fillStyle = cfg.footColor;
     footCtx.fillRect(0, 0, 1024, 1024);
 
-    const footPatColor = resolvePatternColor(config.footColor, pattern.color);
+    const footPatColor = resolvePatternColor(cfg.footColor, pattern.color);
 
     if (pattern.type === 'dots') {
       const cols =
@@ -579,22 +634,12 @@ export const SockViewer3D: React.FC<SockViewer3DProps> = ({
 
     footTex.needsUpdate = true;
 
-    if (rendererRef.current && sceneRef.current && cameraRef.current && onSnapshotReady) {
-      requestAnimationFrame(() => {
-        if (!rendererRef.current || !sceneRef.current || !cameraRef.current) return;
-        rendererRef.current.render(sceneRef.current, cameraRef.current);
-        try {
-          onSnapshotReady(rendererRef.current.domElement.toDataURL('image/png'));
-        } catch {
-          // ignore snapshot error
-        }
-      });
+    if (forceKey) {
+      lastRenderedKeyRef.current = forceKey;
     }
-  }, [
-    config,
-    onSnapshotReady,
-    onGridReady,
-  ]);
+    hasInitialTextureRef.current = true;
+    requestRenderRef.current();
+  }, []);
 
   // Expose live snapshot capture helper for PDF, Preview, and Quote actions
   useEffect(() => {
@@ -635,34 +680,51 @@ export const SockViewer3D: React.FC<SockViewer3DProps> = ({
 
   // Preload logo image (100% local in browser)
   useEffect(() => {
+    let cancelled = false;
     if (config.logo.url) {
       const img = new Image();
       img.crossOrigin = 'anonymous';
       img.onload = () => {
+        if (cancelled) return;
         logoImageRef.current = img;
-        updateZoneTextures();
+        setLogoVersion((v) => v + 1);
       };
       img.onerror = () => {
+        if (cancelled) return;
         logoImageRef.current = null;
-        updateZoneTextures();
+        setLogoVersion((v) => v + 1);
       };
       img.src = config.logo.url;
     } else {
       logoImageRef.current = null;
-      updateZoneTextures();
+      setLogoVersion((v) => v + 1);
     }
-  }, [config.logo.url, updateZoneTextures]);
+    return () => {
+      cancelled = true;
+    };
+  }, [config.logo.url]);
 
-  // Redraw textures whenever any design property changes
+  // Redibujar texturas SOLO cuando cambia el diseño o el logo, con debounce de 150 ms
   useEffect(() => {
-    updateZoneTextures();
-  }, [updateZoneTextures]);
+    const effectiveKey = `${designKey}|v=${logoVersion}`;
+    if (!hasInitialTextureRef.current) {
+      updateZoneTextures(effectiveKey);
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      updateZoneTextures(effectiveKey);
+    }, 150);
+    return () => window.clearTimeout(timer);
+  }, [designKey, logoVersion, updateZoneTextures]);
 
-  // Update autoRotate on controls
+  // Update autoRotate on controls & wake on-demand renderer
   useEffect(() => {
     if (controlsRef.current) {
       controlsRef.current.autoRotate = autoRotate;
       controlsRef.current.autoRotateSpeed = 2.0;
+    }
+    if (autoRotate) {
+      requestRenderRef.current();
     }
   }, [autoRotate]);
 
@@ -694,16 +756,17 @@ export const SockViewer3D: React.FC<SockViewer3DProps> = ({
     );
     camera.lookAt(TARGET);
 
-    // 3. Renderer con fondo oscuro de estudio (#0A1A23, igual que la portada nueva)
+    // 3. Renderer con fondo oscuro de estudio (#0A1A23), pixelRatio acotado y sin copia extra de framebuffer
+    const isMobile = window.innerWidth < 768;
     const renderer = new THREE.WebGLRenderer({
-      antialias: true,
+      antialias: !isMobile,
       alpha: false,
       powerPreference: 'high-performance',
-      preserveDrawingBuffer: true,
+      preserveDrawingBuffer: false,
     });
     rendererRef.current = renderer;
     renderer.setSize(container.clientWidth, container.clientHeight);
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, isMobile ? 1.25 : 1.5));
     renderer.shadowMap.enabled = false;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     renderer.toneMappingExposure = 1.08;
@@ -714,7 +777,8 @@ export const SockViewer3D: React.FC<SockViewer3DProps> = ({
     renderer.domElement.style.display = 'block';
     container.appendChild(renderer.domElement);
 
-    const maxAnisotropy = Math.min(16, renderer.capabilities.getMaxAnisotropy());
+    const maxAnisotropy = Math.min(4, renderer.capabilities.getMaxAnisotropy());
+    const normalAnisotropy = Math.min(2, maxAnisotropy);
 
     // 4. OrbitControls
     const controls = new OrbitControls(camera, renderer.domElement);
@@ -727,20 +791,16 @@ export const SockViewer3D: React.FC<SockViewer3DProps> = ({
     controls.minPolarAngle = Math.PI * 0.10;
     controls.maxPolarAngle = Math.PI * 0.48;
 
-    // 5. Iluminación de estudio de 3 puntos (clave cálida + relleno suave + contraluz de perfil)
-    const hemiLight = new THREE.HemisphereLight(0xf8fafc, 0x0f2533, 0.85);
+    // 5. Iluminación de estudio (hemisférica + clave cálida + contraluz de perfil)
+    const hemiLight = new THREE.HemisphereLight(0xf8fafc, 0x163142, 0.95);
     scene.add(hemiLight);
 
-    const keyLight = new THREE.DirectionalLight(0xfffaf2, 1.45);
+    const keyLight = new THREE.DirectionalLight(0xfffaf2, 1.5);
     keyLight.position.set(-2.2, 3.8, 2.6);
     scene.add(keyLight);
 
-    const fillLight = new THREE.DirectionalLight(0xdbeafe, 0.62);
-    fillLight.position.set(2.6, 1.9, 1.5);
-    scene.add(fillLight);
-
-    const rimLight = new THREE.DirectionalLight(0x93c5fd, 0.85);
-    rimLight.position.set(0.5, 2.6, -2.9);
+    const rimLight = new THREE.DirectionalLight(0x93c5fd, 0.9);
+    rimLight.position.set(1.4, 2.4, -2.5);
     scene.add(rimLight);
 
     // 6. Peana cilíndrica oscura de estudio (integrada con el fondo #0A1A23)
@@ -768,11 +828,11 @@ export const SockViewer3D: React.FC<SockViewer3DProps> = ({
     scene.add(contactShadow);
 
     // 7. Normal Maps: puntadas en V para caña/pie/talón/puntera y canalé para el puño
-    const baseStitchNormal = createKnitStitchNormalTexture(maxAnisotropy);
+    const baseStitchNormal = createKnitStitchNormalTexture(normalAnisotropy);
     const normalMapLeg = baseStitchNormal ? baseStitchNormal.clone() : null;
     if (normalMapLeg) {
       normalMapLeg.repeat.set(21, 26); // se ajusta dinámicamente a grid.width/8 x grid.height/8
-      normalMapLeg.anisotropy = maxAnisotropy;
+      normalMapLeg.anisotropy = normalAnisotropy;
       normalMapLeg.needsUpdate = true;
     }
     normalMapLegRef.current = normalMapLeg;
@@ -780,11 +840,11 @@ export const SockViewer3D: React.FC<SockViewer3DProps> = ({
     const normalMapFootHeelToe = baseStitchNormal ? baseStitchNormal.clone() : null;
     if (normalMapFootHeelToe) {
       normalMapFootHeelToe.repeat.set(24, 22);
-      normalMapFootHeelToe.anisotropy = maxAnisotropy;
+      normalMapFootHeelToe.anisotropy = normalAnisotropy;
       normalMapFootHeelToe.needsUpdate = true;
     }
 
-    const normalMapCuffRib = createCuffRibNormalTexture(maxAnisotropy);
+    const normalMapCuffRib = createCuffRibNormalTexture(normalAnisotropy);
     if (normalMapCuffRib) {
       normalMapCuffRib.repeat.set(5, 2);
       normalMapCuffRib.needsUpdate = true;
@@ -822,7 +882,13 @@ export const SockViewer3D: React.FC<SockViewer3DProps> = ({
     };
 
     const cuffTexture = makeZoneTexture(cuffCanvasRef, cuffTextureRef, config.cuffColor, 1024, 1024);
-    const legTexture = makeZoneTexture(legCanvasRef, legTextureRef, config.legColor, 2016, 2100);
+    const legTexture = makeZoneTexture(
+      legCanvasRef,
+      legTextureRef,
+      config.legColor,
+      isMobile ? 672 : 1008,
+      isMobile ? 840 : 1260
+    );
     const footTexture = makeZoneTexture(footCanvasRef, footTextureRef, config.footColor, 1024, 1024);
 
     // 9. Materiales textiles mates (algodón / poliamida) con relieve suave
@@ -976,14 +1042,20 @@ export const SockViewer3D: React.FC<SockViewer3DProps> = ({
           };
         }
 
-        if (onSnapshotReady) {
+        if (onSnapshotReadyRef.current) {
           setTimeout(() => {
             if (isDisposed) return;
             renderer.render(scene, camera);
-            const url = renderer.domElement.toDataURL('image/png');
-            onSnapshotReady(url);
+            try {
+              const url = renderer.domElement.toDataURL('image/png');
+              onSnapshotReadyRef.current?.(url);
+            } catch {
+              // ignore snapshot error
+            }
           }, 500);
         }
+
+        requestRenderRef.current();
       },
       undefined,
       (error) => {
@@ -994,14 +1066,18 @@ export const SockViewer3D: React.FC<SockViewer3DProps> = ({
       }
     );
 
-    const handleUserInteraction = () => {
-      if (introAnimRef.current?.active) introAnimRef.current.active = false;
-      if (presetAnimRef.current?.active) presetAnimRef.current.active = false;
-    };
-    container.addEventListener('pointerdown', handleUserInteraction, { passive: true });
+    // Renderizado bajo demanda: máximo 1 RAF pendiente a la vez (sin fork bomb con OrbitControls 'change')
+    let rafActive = false;
+    let isTicking = false;
+    let needsFrame = true;
+    const prevCamPos = new THREE.Vector3().copy(camera.position);
 
-    const animate = (currentTime: number) => {
-      animationFrameId = requestAnimationFrame(animate);
+    const tick = (currentTime: number) => {
+      rafActive = false;
+      if (isDisposed || !isVisibleRef.current) return;
+
+      isTicking = true;
+      let keepLooping = false;
 
       if (introAnimRef.current?.active) {
         const anim = introAnimRef.current;
@@ -1018,10 +1094,12 @@ export const SockViewer3D: React.FC<SockViewer3DProps> = ({
         controls.target.copy(TARGET);
         controls.update();
 
-        if (progress >= 1.0) anim.active = false;
-      }
-
-      if (presetAnimRef.current?.active) {
+        if (progress >= 1.0) {
+          anim.active = false;
+        } else {
+          keepLooping = true;
+        }
+      } else if (presetAnimRef.current?.active) {
         const anim = presetAnimRef.current;
         const elapsed = currentTime - anim.startTime;
         const progress = Math.min(elapsed / anim.duration, 1.0);
@@ -1041,25 +1119,82 @@ export const SockViewer3D: React.FC<SockViewer3DProps> = ({
         controls.target.copy(TARGET);
         controls.update();
 
-        if (progress >= 1.0) anim.active = false;
-      }
-
-      if (!introAnimRef.current?.active && !presetAnimRef.current?.active) {
+        if (progress >= 1.0) {
+          anim.active = false;
+        } else {
+          keepLooping = true;
+        }
+      } else {
         controls.update();
       }
 
-      renderer.render(scene, camera);
+      isTicking = false;
+
+      const camDeltaSq = prevCamPos.distanceToSquared(camera.position);
+      if (camDeltaSq > 1e-7) {
+        prevCamPos.copy(camera.position);
+        keepLooping = true;
+      }
+
+      if (autoRotateRef.current) {
+        keepLooping = true;
+      }
+
+      if (needsFrame || keepLooping) {
+        needsFrame = false;
+        renderer.render(scene, camera);
+      }
+
+      if (keepLooping && !rafActive && isVisibleRef.current && !isDisposed) {
+        rafActive = true;
+        animationFrameId = requestAnimationFrame(tick);
+      }
     };
 
-    animationFrameId = requestAnimationFrame(animate);
+    const requestRender = () => {
+      needsFrame = true;
+      if (!isTicking && !rafActive && isVisibleRef.current && !isDisposed) {
+        rafActive = true;
+        animationFrameId = requestAnimationFrame(tick);
+      }
+    };
+    requestRenderRef.current = requestRender;
+
+    const handleUserInteraction = () => {
+      if (introAnimRef.current?.active) introAnimRef.current.active = false;
+      if (presetAnimRef.current?.active) presetAnimRef.current.active = false;
+      requestRender();
+    };
+    container.addEventListener('pointerdown', handleUserInteraction, { passive: true });
+    controls.addEventListener('change', requestRender);
+    controls.addEventListener('start', requestRender);
+
+    const visibilityObserver = new IntersectionObserver(
+      ([entry]) => {
+        isVisibleRef.current = entry.isIntersecting;
+        if (entry.isIntersecting) {
+          requestRender();
+        } else if (rafActive) {
+          cancelAnimationFrame(animationFrameId);
+          rafActive = false;
+        }
+      },
+      { rootMargin: '150px' }
+    );
+    visibilityObserver.observe(container);
+
+    requestRender();
 
     const handleResize = () => {
       if (!container || !renderer || !camera) return;
       const width = container.clientWidth;
       const height = container.clientHeight || 1;
+      const mobileNow = window.innerWidth < 768;
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, mobileNow ? 1.25 : 1.5));
       camera.aspect = width / height;
       camera.updateProjectionMatrix();
       renderer.setSize(width, height);
+      requestRender();
     };
 
     const resizeObserver = new ResizeObserver(handleResize);
@@ -1069,6 +1204,9 @@ export const SockViewer3D: React.FC<SockViewer3DProps> = ({
       isDisposed = true;
       cancelAnimationFrame(animationFrameId);
       container.removeEventListener('pointerdown', handleUserInteraction);
+      controls.removeEventListener('change', requestRender);
+      controls.removeEventListener('start', requestRender);
+      visibilityObserver.disconnect();
       resizeObserver.disconnect();
       controls.dispose();
       renderer.dispose();
@@ -1128,6 +1266,7 @@ export const SockViewer3D: React.FC<SockViewer3DProps> = ({
       startPhi: currentPhi,
       targetPhi,
     };
+    requestRenderRef.current();
   };
 
   return (

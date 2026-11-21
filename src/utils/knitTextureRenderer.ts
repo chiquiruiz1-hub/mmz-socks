@@ -73,29 +73,13 @@ function packRGBA(r: number, g: number, b: number, a = 255): number {
   return ((a & 0xff) << 24) | (cb << 16) | (cg << 8) | cr;
 }
 
-/**
- * Renderiza toda la cuadrícula KnitPixelGrid en un canvas de alta resolución
- * (múltiples píxeles por aguja) dibujando cada píxel como una puntada en V
- * real con relieve suave, sin cuadraditos planos.
- */
-export function renderGridToKnitCanvas(
-  grid: KnitPixelGrid,
-  targetCanvas: HTMLCanvasElement
-): void {
-  const cellW = grid.width === 168 ? 12 : 10; // 168*12=2016px, 200*10=2000px
-  const cellH = grid.width === 168 ? 10 : 8;  // 210*10=2100px, 250*8=2000px
-  const outW = grid.width * cellW;
-  const outH = grid.height * cellH;
+const stitchMaskCache = new Map<string, { multMask: Float32Array; specMask: Float32Array }>();
 
-  if (targetCanvas.width !== outW || targetCanvas.height !== outH) {
-    targetCanvas.width = outW;
-    targetCanvas.height = outH;
-  }
+function getVStitchMasks(cellW: number, cellH: number): { multMask: Float32Array; specMask: Float32Array } {
+  const key = `${cellW}x${cellH}`;
+  const cached = stitchMaskCache.get(key);
+  if (cached) return cached;
 
-  const ctx = targetCanvas.getContext('2d');
-  if (!ctx) return;
-
-  // Precalcular máscara de sombreado para una celda cellW x cellH
   const multMask = new Float32Array(cellW * cellH);
   const specMask = new Float32Array(cellW * cellH);
   for (let py = 0; py < cellH; py++) {
@@ -108,6 +92,38 @@ export function renderGridToKnitCanvas(
       specMask[k] = spec;
     }
   }
+  const entry = { multMask, specMask };
+  stitchMaskCache.set(key, entry);
+  return entry;
+}
+
+/**
+ * Renderiza toda la cuadrícula KnitPixelGrid en un canvas de alta resolución
+ * (múltiples píxeles por aguja) dibujando cada píxel como una puntada en V
+ * real con relieve suave, sin cuadraditos planos.
+ */
+export function renderGridToKnitCanvas(
+  grid: KnitPixelGrid,
+  targetCanvas: HTMLCanvasElement,
+  compact = false
+): void {
+  // Desktop: 6x6 px por puntada (~1008x1260 en 168 agujas); Móvil: 4x4 px (~672x840)
+  // Suficiente para ver el punto V nítido en el 3D; la Lupa renderiza aparte en vectorial puro.
+  const cellW = compact ? 4 : 6;
+  const cellH = compact ? 4 : 6;
+  const outW = grid.width * cellW;
+  const outH = grid.height * cellH;
+
+  if (targetCanvas.width !== outW || targetCanvas.height !== outH) {
+    targetCanvas.width = outW;
+    targetCanvas.height = outH;
+  }
+
+  const ctx = targetCanvas.getContext('2d');
+  if (!ctx) return;
+
+  // Reutilizar máscara cacheada de sombreado V-stitch para esta celda
+  const { multMask, specMask } = getVStitchMasks(cellW, cellH);
 
   // Pre-hornear 2 variantes sutiles de puntada por cada color de la paleta (máx. 6 colores)
   const paletteLen = Math.max(1, grid.palette.length);
